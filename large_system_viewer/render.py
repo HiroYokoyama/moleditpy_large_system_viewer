@@ -14,39 +14,67 @@ except ImportError:  # pragma: no cover - numpy is a host dependency
 from . import elements
 from .settings import RIBBON_REPRESENTATIONS, hex_to_rgb
 
+logger = logging.getLogger(__name__)
+
 ACTOR_PREFIX = "large_system_viewer_"
 _N_ELEMENTS = 119
 
 _BOX_EDGES = (
-    (0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3),
-    (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7),
+    (0, 1),
+    (0, 2),
+    (0, 4),
+    (1, 3),
+    (1, 5),
+    (2, 3),
+    (2, 6),
+    (3, 7),
+    (4, 5),
+    (4, 6),
+    (5, 7),
+    (6, 7),
 )
 
 
 def _vtk():
     """Import the VTK pieces lazily: tests and the plugin metadata do not need them."""
+    import vtkmodules.vtkDomainsChemistryOpenGL2
+    import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
     from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy
     from vtkmodules.vtkCommonCore import (
-        vtkIdTypeArray, vtkLookupTable, vtkPoints, vtkStringArray, vtkUnsignedCharArray,
-        vtkUnsignedIntArray, vtkFloatArray,
+        vtkFloatArray,
+        vtkIdTypeArray,
+        vtkLookupTable,
+        vtkPoints,
+        vtkStringArray,
+        vtkUnsignedCharArray,
+        vtkUnsignedIntArray,
     )
     from vtkmodules.vtkCommonDataModel import (
-        vtkCellArray, vtkDataSetAttributes, vtkMolecule, vtkPolyData,
+        vtkCellArray,
+        vtkDataSetAttributes,
+        vtkMolecule,
+        vtkPolyData,
     )
     from vtkmodules.vtkDomainsChemistry import vtkMoleculeMapper, vtkProteinRibbonFilter
     from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
-    import vtkmodules.vtkDomainsChemistryOpenGL2  # noqa: F401  impostor override
-    import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
 
     return {
-        "numpy_to_vtk": numpy_to_vtk, "vtk_to_numpy": vtk_to_numpy,
-        "vtkIdTypeArray": vtkIdTypeArray, "vtkLookupTable": vtkLookupTable,
-        "vtkPoints": vtkPoints, "vtkStringArray": vtkStringArray,
-        "vtkUnsignedCharArray": vtkUnsignedCharArray, "vtkUnsignedIntArray": vtkUnsignedIntArray,
-        "vtkFloatArray": vtkFloatArray, "vtkCellArray": vtkCellArray,
-        "vtkDataSetAttributes": vtkDataSetAttributes, "vtkMolecule": vtkMolecule,
-        "vtkPolyData": vtkPolyData, "vtkMoleculeMapper": vtkMoleculeMapper,
-        "vtkProteinRibbonFilter": vtkProteinRibbonFilter, "vtkActor": vtkActor,
+        "numpy_to_vtk": numpy_to_vtk,
+        "vtk_to_numpy": vtk_to_numpy,
+        "vtkIdTypeArray": vtkIdTypeArray,
+        "vtkLookupTable": vtkLookupTable,
+        "vtkPoints": vtkPoints,
+        "vtkStringArray": vtkStringArray,
+        "vtkUnsignedCharArray": vtkUnsignedCharArray,
+        "vtkUnsignedIntArray": vtkUnsignedIntArray,
+        "vtkFloatArray": vtkFloatArray,
+        "vtkCellArray": vtkCellArray,
+        "vtkDataSetAttributes": vtkDataSetAttributes,
+        "vtkMolecule": vtkMolecule,
+        "vtkPolyData": vtkPolyData,
+        "vtkMoleculeMapper": vtkMoleculeMapper,
+        "vtkProteinRibbonFilter": vtkProteinRibbonFilter,
+        "vtkActor": vtkActor,
         "vtkPolyDataMapper": vtkPolyDataMapper,
     }
 
@@ -62,7 +90,7 @@ def vdw_radii_table():
             r = pt.GetRvdw(z)
             table[z] = r if r > 0.1 else 1.5
     except Exception:  # pragma: no cover - RDKit is a host dependency
-        logging.debug("RDKit periodic table unavailable", exc_info=True)
+        logger.debug("RDKit periodic table unavailable", exc_info=True)
     return table
 
 
@@ -158,7 +186,9 @@ class FastScene:
 
         if rep in RIBBON_REPRESENTATIONS:
             self._build_ribbon(vtk, system, positions, options)
-            atom_mask = visible & system.ligand_mask() if rep == "ribbon_ligands" else None
+            atom_mask = (
+                visible & system.ligand_mask() if rep == "ribbon_ligands" else None
+            )
         else:
             atom_mask = visible
         if atom_mask is not None and atom_mask.any():
@@ -170,8 +200,13 @@ class FastScene:
     def _add(self, name, actor):
         self.actors[name] = actor
         try:
-            self.plotter.add_actor(actor, reset_camera=False, name=ACTOR_PREFIX + name,
-                                   pickable=False, render=False)
+            self.plotter.add_actor(
+                actor,
+                reset_camera=False,
+                name=ACTOR_PREFIX + name,
+                pickable=False,
+                render=False,
+            )
         except TypeError:  # older PyVista without some keywords
             self.plotter.add_actor(actor, reset_camera=False, name=ACTOR_PREFIX + name)
 
@@ -182,21 +217,31 @@ class FastScene:
         full_to_sub[index] = np.arange(len(index))
 
         pts = vtk["vtkPoints"]()
-        pts.SetData(vtk["numpy_to_vtk"](np.ascontiguousarray(positions[index], dtype=np.float32), deep=True))
-        numbers = vtk["numpy_to_vtk"](system.numbers[index].astype(np.uint16), deep=True)
+        pts.SetData(
+            vtk["numpy_to_vtk"](
+                np.ascontiguousarray(positions[index], dtype=np.float32), deep=True
+            )
+        )
+        numbers = vtk["numpy_to_vtk"](
+            system.numbers[index].astype(np.uint16), deep=True
+        )
         numbers.SetName("Atomic Numbers")
         data = vtk["vtkDataSetAttributes"]()
         data.AddArray(numbers)
         mol = vtk["vtkMolecule"]()
         mol.Initialize(pts, data)
-        radii = vtk["numpy_to_vtk"](atom_radii(system.numbers[index], look, options["vdw"]), deep=True)
+        radii = vtk["numpy_to_vtk"](
+            atom_radii(system.numbers[index], look, options["vdw"]), deep=True
+        )
         radii.SetName("radii")
         mol.GetVertexData().AddArray(radii)
 
         if look.get("draw_bonds", True) and len(system.bonds):
             sub = full_to_sub[system.bonds]
             keep = (sub >= 0).all(axis=1)
-            orders = system.bond_orders[keep] if system.bond_orders is not None else None
+            orders = (
+                system.bond_orders[keep] if system.bond_orders is not None else None
+            )
             for k, (a, b) in enumerate(sub[keep].tolist()):
                 mol.AppendBond(a, b, int(orders[k]) if orders is not None else 1)
 
@@ -212,7 +257,7 @@ class FastScene:
             mapper.SetBondColorModeToDiscreteByAtom()
         else:
             mapper.SetBondColorModeToSingleColor()
-            mapper.SetBondColor(*[int(round(255 * c)) for c in look["bond_color"]])
+            mapper.SetBondColor(*[round(255 * c) for c in look["bond_color"]])
         lut = vtk["vtkLookupTable"]()
         lut.SetNumberOfTableValues(_N_ELEMENTS)
         lut.SetRange(0, _N_ELEMENTS - 1)
@@ -232,16 +277,28 @@ class FastScene:
         self._add("atoms", actor)
 
     def _build_ribbon(self, vtk, system, positions, options):
-        index = np.flatnonzero(~system.hetatm) if system.hetatm is not None else np.arange(system.n_atoms)
+        index = (
+            np.flatnonzero(~system.hetatm)
+            if system.hetatm is not None
+            else np.arange(system.n_atoms)
+        )
         names = [system.names[i].strip() for i in index.tolist()]
         chains = [system.chains[i] if system.chains else "A" for i in index.tolist()]
         resids = system.resids[index]
-        ss = system.ss[index] if system.ss is not None else np.full(len(index), ord("c"), np.uint8)
+        ss = (
+            system.ss[index]
+            if system.ss is not None
+            else np.full(len(index), ord("c"), np.uint8)
+        )
         begin, end = secondary_structure_bounds(ss, chains, resids)
 
         poly = vtk["vtkPolyData"]()
         pts = vtk["vtkPoints"]()
-        pts.SetData(vtk["numpy_to_vtk"](np.ascontiguousarray(positions[index], dtype=np.float32), deep=True))
+        pts.SetData(
+            vtk["numpy_to_vtk"](
+                np.ascontiguousarray(positions[index], dtype=np.float32), deep=True
+            )
+        )
         poly.SetPoints(pts)
         pd = poly.GetPointData()
 
@@ -249,16 +306,25 @@ class FastScene:
             arr.SetName(name)
             pd.AddArray(arr)
 
-        z = vtk["numpy_to_vtk"](system.numbers[index].astype(np.int64), deep=True,
-                                array_type=vtk["vtkIdTypeArray"]().GetDataType())
+        z = vtk["numpy_to_vtk"](
+            system.numbers[index].astype(np.int64),
+            deep=True,
+            array_type=vtk["vtkIdTypeArray"]().GetDataType(),
+        )
         add(z, "atom_type")
         names_arr = vtk["vtkStringArray"]()
         names_arr.SetNumberOfValues(len(names))
         for k, nm in enumerate(names):
             names_arr.SetValue(k, nm)
         add(names_arr, "atom_types")
-        add(vtk["numpy_to_vtk"](resids.astype(np.int64), deep=True,
-                                array_type=vtk["vtkIdTypeArray"]().GetDataType()), "residue")
+        add(
+            vtk["numpy_to_vtk"](
+                resids.astype(np.int64),
+                deep=True,
+                array_type=vtk["vtkIdTypeArray"]().GetDataType(),
+            ),
+            "residue",
+        )
         chain_codes = np.array([ord(c[:1] or " ") for c in chains], dtype=np.uint8)
         add(vtk["numpy_to_vtk"](chain_codes, deep=True), "chain")
         add(vtk["numpy_to_vtk"](ss.astype(np.uint8), deep=True), "secondary_structures")
@@ -266,10 +332,22 @@ class FastScene:
         add(vtk["numpy_to_vtk"](end, deep=True), "secondary_structures_end")
         add(vtk["numpy_to_vtk"](np.zeros(len(index), np.uint8), deep=True), "ishetatm")
         add(vtk["numpy_to_vtk"](np.ones(len(index), np.uint32), deep=True), "model")
-        rgb = (np.asarray(options["colors"])[np.clip(system.numbers[index], 0, _N_ELEMENTS - 1)] * 255).astype(np.uint8)
+        rgb = (
+            np.asarray(options["colors"])[
+                np.clip(system.numbers[index], 0, _N_ELEMENTS - 1)
+            ]
+            * 255
+        ).astype(np.uint8)
         add(vtk["numpy_to_vtk"](np.ascontiguousarray(rgb), deep=True), "rgb_colors")
-        rad = np.repeat(options["vdw"][np.clip(system.numbers[index], 0, _N_ELEMENTS - 1)][:, None], 3, axis=1)
-        add(vtk["numpy_to_vtk"](np.ascontiguousarray(rad, dtype=np.float32), deep=True), "radius")
+        rad = np.repeat(
+            options["vdw"][np.clip(system.numbers[index], 0, _N_ELEMENTS - 1)][:, None],
+            3,
+            axis=1,
+        )
+        add(
+            vtk["numpy_to_vtk"](np.ascontiguousarray(rad, dtype=np.float32), deep=True),
+            "radius",
+        )
 
         ribbon = vtk["vtkProteinRibbonFilter"]()
         ribbon.SetInputData(poly)
@@ -294,7 +372,9 @@ class FastScene:
     def _build_box(self, vtk, box, options):
         poly = vtk["vtkPolyData"]()
         pts = vtk["vtkPoints"]()
-        pts.SetData(vtk["numpy_to_vtk"](cell_corners(box).astype(np.float32), deep=True))
+        pts.SetData(
+            vtk["numpy_to_vtk"](cell_corners(box).astype(np.float32), deep=True)
+        )
         poly.SetPoints(pts)
         lines = vtk["vtkCellArray"]()
         for a, b in _BOX_EDGES:
@@ -354,7 +434,7 @@ class FastScene:
             except TypeError:
                 self.plotter.remove_actor(actor)
             except (AttributeError, RuntimeError, KeyError):
-                logging.debug("could not remove %s", name, exc_info=True)
+                logger.debug("could not remove %s", name, exc_info=True)
         self.actors = {}
         self._mol = None
         self._mol_index = None

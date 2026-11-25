@@ -1,5 +1,6 @@
 """The displayed system and its frames."""
 
+import logging
 import os
 from collections import OrderedDict
 
@@ -11,6 +12,8 @@ except ImportError:  # pragma: no cover - numpy is a host dependency
 MODE_HYBRID = "hybrid"  # the host molecule is the committed frame
 MODE_VIEW_ONLY = "view_only"  # too large for the host; drawn by the plugin alone
 MODE_CONFORMERS = "conformers"  # an existing host molecule; conformers are the frames
+
+logger = logging.getLogger(__name__)
 
 _CACHE_FRAMES = 8
 
@@ -78,5 +81,5 @@ class Session:
         try:
             self.frames.close()
         except Exception:  # pragma: no cover - best effort
-            pass
+            logger.debug("closing frames failed", exc_info=True)
         self._cache.clear()

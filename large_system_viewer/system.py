@@ -1,7 +1,7 @@
 """System: the topology shared by every frame of a structure or trajectory."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Optional
 
 try:
     import numpy as np
@@ -24,17 +24,17 @@ class System:
     numbers: "np.ndarray"  # uint8 [N]
     bonds: "np.ndarray"  # int32 [M, 2]
     bond_orders: Optional["np.ndarray"] = None  # uint8 [M], 1 when unknown
-    names: Optional[List[str]] = None  # PDB/GRO atom names
-    resnames: Optional[List[str]] = None
+    names: list[str] | None = None  # PDB/GRO atom names
+    resnames: list[str] | None = None
     resids: Optional["np.ndarray"] = None  # int32 [N]
-    chains: Optional[List[str]] = None
+    chains: list[str] | None = None
     hetatm: Optional["np.ndarray"] = None  # bool [N]
     ss: Optional["np.ndarray"] = None  # uint8 [N] of SS_COIL / SS_HELIX / SS_SHEET
     extra: dict = field(default_factory=dict)
 
     @property
     def n_atoms(self):
-        return int(len(self.numbers))
+        return len(self.numbers)
 
     @property
     def has_residues(self):
@@ -84,7 +84,10 @@ def from_rdkit(mol):
         system.chains = [i.GetChainId() or " " for i in infos]
         system.hetatm = np.array([i.GetIsHeteroAtom() for i in infos], dtype=bool)
         system.ss = np.array(
-            [a.GetIntProp(SS_PROP) if a.HasProp(SS_PROP) else SS_COIL for a in mol.GetAtoms()],
+            [
+                a.GetIntProp(SS_PROP) if a.HasProp(SS_PROP) else SS_COIL
+                for a in mol.GetAtoms()
+            ],
             dtype=np.uint8,
         )
 
@@ -112,7 +115,9 @@ def to_rdkit(system, positions):
                 residueName=system.resnames[i][:3] if system.resnames else "UNK",
                 residueNumber=int(system.resids[i]),
                 chainId=(system.chains[i] if system.chains else " ")[:1],
-                isHeteroAtom=bool(system.hetatm[i]) if system.hetatm is not None else False,
+                isHeteroAtom=bool(system.hetatm[i])
+                if system.hetatm is not None
+                else False,
             )
             atom.SetMonomerInfo(info)
             if system.ss is not None:

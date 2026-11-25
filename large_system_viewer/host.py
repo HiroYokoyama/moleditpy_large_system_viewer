@@ -13,13 +13,15 @@ try:
 except ImportError:  # pragma: no cover - numpy is a host dependency
     np = None
 
+logger = logging.getLogger(__name__)
+
 _HOOK_ATTR = "_large_system_viewer_set_molecule"
 
 
 def _call(obj, name, *args, **kwargs):
     fn = getattr(obj, name, None)
     if fn is None:
-        logging.debug("Large System Viewer: host has no %s", name)
+        logger.debug("Large System Viewer: host has no %s", name)
         return None
     return fn(*args, **kwargs)
 
@@ -59,7 +61,7 @@ def cpk_colors(mw):
     colors = getattr(mod, "CPK_COLORS_PV", None)
     if not colors:
         try:
-            from moleditpy.utils.constants import CPK_COLORS_PV as colors  # noqa: N811
+            from moleditpy.utils.constants import CPK_COLORS_PV as colors
         except ImportError:
             colors = {}
     return colors
@@ -112,7 +114,7 @@ def install_molecule_hook(mw, after_set):
             try:
                 after_set(mol)
             except Exception:  # never break the host's loader
-                logging.exception("Large System Viewer: molecule hook failed")
+                logger.exception("Large System Viewer: molecule hook failed")
 
     setattr(mw, _HOOK_ATTR, original)
     mw.set_current_molecule = hooked
@@ -127,7 +129,7 @@ def uninstall_molecule_hook(mw):
 
 def set_molecule_quietly(mw, mol):
     """Set the current molecule without going through the hook."""
-    original = getattr(mw, _HOOK_ATTR, None) or getattr(mw, "set_current_molecule")
+    original = getattr(mw, _HOOK_ATTR, None) or mw.set_current_molecule
     original(mol)
 
 
@@ -143,7 +145,7 @@ def begin_scene(mw):
         try:
             edit_3d.clear_measurement_selection()
         except (AttributeError, RuntimeError):
-            logging.debug("clear_measurement_selection failed", exc_info=True)
+            logger.debug("clear_measurement_selection failed", exc_info=True)
     color_map = getattr(v3d, "_3d_color_map", None)
     if isinstance(color_map, dict):
         color_map.clear()
@@ -153,7 +155,7 @@ def begin_scene(mw):
         try:
             p.remove_actor(axes)
         except (AttributeError, RuntimeError, TypeError):
-            logging.debug("axes removal failed", exc_info=True)
+            logger.debug("axes removal failed", exc_info=True)
         v3d.axes_actor = None
     p.clear()
     host = settings(mw)
@@ -162,10 +164,15 @@ def begin_scene(mw):
         try:
             import pyvista as pv
 
-            p.add_light(pv.Light(position=(1, 1, 2), light_type="cameralight",
-                                 intensity=host.get("light_intensity", 1.2)))
+            p.add_light(
+                pv.Light(
+                    position=(1, 1, 2),
+                    light_type="cameralight",
+                    intensity=host.get("light_intensity", 1.2),
+                )
+            )
         except Exception:
-            logging.debug("light setup failed", exc_info=True)
+            logger.debug("light setup failed", exc_info=True)
     return camera
 
 
@@ -179,7 +186,7 @@ def end_scene(mw, camera, reset_camera=False):
     try:
         v3d.apply_3d_settings(redraw=False)
     except Exception:
-        logging.debug("apply_3d_settings failed", exc_info=True)
+        logger.debug("apply_3d_settings failed", exc_info=True)
     p.render()
 
 
@@ -196,7 +203,9 @@ def store_positions(mw, mol, positions):
 def set_picking_positions(mw, positions):
     v3d = view3d(mw)
     if v3d is not None:
-        v3d.atom_positions_3d = None if positions is None else np.asarray(positions, np.float64).copy()
+        v3d.atom_positions_3d = (
+            None if positions is None else np.asarray(positions, np.float64).copy()
+        )
 
 
 # ------------------------------------------------------------------ documents
@@ -247,6 +256,10 @@ def load_molecule(mw, mol):
     _call(v3d, "update_atom_id_menu_state")
 
 
+def native_open_supported(path):
+    return os.path.splitext(path)[1].lower() in (".xyz", ".sdf", ".mol")
+
+
 def native_open(mw, path):
     """Open a file with the host's own loader. True when the host knows the type."""
     io = getattr(mw, "io_manager", None)
@@ -271,7 +284,53 @@ def reset_view(mw):
         p.reset_camera()
         p.render()
     except Exception:
-        logging.debug("reset view failed", exc_info=True)
+        logger.debug("reset view failed", exc_info=True)
+
+
+# --------------------------------------------------------------------- export
+
+_EXPORT_METHODS = (
+    "export_from_3d_view",
+    "export_from_3d_view_no_color",
+    "export_from_3d_view_with_colors",
+)
+_EXPORT_ATTR = "_large_system_viewer_export_originals"
+
+
+def install_export_guard(mw, blocked):
+    """Make the STL/OBJ exporters find nothing when blocked() is True.
+
+    The menu actions are bound to ExportManager methods at start-up, but those call
+    the export_from_3d_view* helpers through the instance, so wrapping them there
+    reaches every mesh export.
+    """
+    export = getattr(mw, "export_manager", None)
+    if export is None or getattr(export, _EXPORT_ATTR, None):
+        return
+    originals = {}
+    for name in _EXPORT_METHODS:
+        original = getattr(export, name, None)
+        if original is None:
+            continue
+        originals[name] = original
+
+        def guarded(*args, _original=original, **kwargs):
+            if blocked():
+                return [] if _original.__name__.endswith("with_colors") else None
+            return _original(*args, **kwargs)
+
+        setattr(export, name, guarded)
+    setattr(export, _EXPORT_ATTR, originals)
+
+
+def uninstall_export_guard(mw):
+    export = getattr(mw, "export_manager", None)
+    originals = getattr(export, _EXPORT_ATTR, None) if export is not None else None
+    if not originals:
+        return
+    for name, original in originals.items():
+        setattr(export, name, original)
+    setattr(export, _EXPORT_ATTR, None)
 
 
 # --------------------------------------------------------------- interaction

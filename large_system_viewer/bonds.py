@@ -113,7 +113,9 @@ def perceive_bonds(positions, numbers, tolerance=TOLERANCE):
 
 def merge_bonds(*bond_sets):
     """Union of bond arrays, normalized to i < j and deduplicated."""
-    arrays = [np.asarray(b, dtype=np.int64).reshape(-1, 2) for b in bond_sets if b is not None]
+    arrays = [
+        np.asarray(b, dtype=np.int64).reshape(-1, 2) for b in bond_sets if b is not None
+    ]
     if not arrays:
         return np.empty((0, 2), dtype=np.int32)
     allb = np.concatenate(arrays)

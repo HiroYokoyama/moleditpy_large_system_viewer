@@ -4,6 +4,8 @@ import json
 import logging
 import os
 
+logger = logging.getLogger(__name__)
+
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 REPRESENTATIONS = (
@@ -106,7 +108,7 @@ def load(path=SETTINGS_FILE):
     except FileNotFoundError:
         return values
     except (OSError, ValueError) as exc:
-        logging.warning("Large System Viewer: ignoring unreadable settings: %s", exc)
+        logger.warning("Large System Viewer: ignoring unreadable settings: %s", exc)
         return values
     if isinstance(stored, dict):
         for key, value in stored.items():
@@ -121,13 +123,13 @@ def save(values, path=SETTINGS_FILE):
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
     except OSError as exc:
-        logging.warning("Large System Viewer: could not save settings: %s", exc)
+        logger.warning("Large System Viewer: could not save settings: %s", exc)
 
 
 def hex_to_rgb(color):
     try:
         h = str(color).lstrip("#")
-        return tuple(int(h[k:k + 2], 16) / 255.0 for k in (0, 2, 4))
+        return tuple(int(h[k : k + 2], 16) / 255.0 for k in (0, 2, 4))
     except (TypeError, ValueError):
         return (0.5, 0.5, 0.5)
 
@@ -153,12 +155,22 @@ def appearance(values, host_settings, representation):
         "lighting": bool(host.get("lighting_enabled", True)),
     }
     if representation == "spacefill":
-        out.update(atom_mode="vdw", atom_scale=float(pick("cpk_atom_scale", "spacefill_scale", 1.0)),
-                   bond_radius=0.0, bond_by_atom=True, draw_bonds=False)
+        out.update(
+            atom_mode="vdw",
+            atom_scale=float(pick("cpk_atom_scale", "spacefill_scale", 1.0)),
+            bond_radius=0.0,
+            bond_by_atom=True,
+            draw_bonds=False,
+        )
     elif representation == "licorice":
         r = float(pick("stick_bond_radius", "licorice_radius", 0.15))
-        out.update(atom_mode="constant", atom_scale=r, bond_radius=r, bond_by_atom=True,
-                   draw_bonds=True)
+        out.update(
+            atom_mode="constant",
+            atom_scale=r,
+            bond_radius=r,
+            bond_by_atom=True,
+            draw_bonds=True,
+        )
     else:
         by_atom = pick("ball_stick_use_cpk_bond_color", "bond_color_by_atom", False)
         out.update(
@@ -166,7 +178,9 @@ def appearance(values, host_settings, representation):
             atom_scale=float(pick("ball_stick_atom_scale", "ball_atom_scale", 1.0)),
             bond_radius=float(pick("ball_stick_bond_radius", "ball_bond_radius", 0.1)),
             bond_by_atom=bool(by_atom),
-            bond_color=hex_to_rgb(pick("ball_stick_bond_color", "bond_color", "#7F7F7F")),
+            bond_color=hex_to_rgb(
+                pick("ball_stick_bond_color", "bond_color", "#7F7F7F")
+            ),
             draw_bonds=True,
         )
     out.setdefault("bond_color", hex_to_rgb(values.get("bond_color", "#7F7F7F")))

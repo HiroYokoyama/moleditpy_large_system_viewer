@@ -85,7 +85,7 @@ class ArrayFrames(FrameSource):
 
 class _MappedFrames(FrameSource):
     def __init__(self, path, ranges, n_atoms, parse, default_box=None):
-        self._file = open(path, "rb")
+        self._file = open(path, "rb")  # noqa: SIM115 - kept open for the mmap
         self._mm = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
         self.ranges = ranges
         self.n_frames = len(ranges)
@@ -110,7 +110,7 @@ class _MappedFrames(FrameSource):
 
 
 def _open_mmap(path):
-    f = open(path, "rb")
+    f = open(path, "rb")  # noqa: SIM115 - returned with the mmap
     try:
         if os.fstat(f.fileno()).st_size == 0:
             raise FormatError("the file is empty")
@@ -168,9 +168,11 @@ def parse_fixed(arr, starts, width, count):
     bad_rows = np.flatnonzero(~_ALLOWED[chars].all(axis=1))
     for r in bad_rows.tolist():
         for k in range(count):
-            raw = bytes(chars[r, k * width:(k + 1) * width])
+            raw = bytes(chars[r, k * width : (k + 1) * width])
             if b"\n" in raw or b"\r" in raw:
-                raise FormatError("a coordinate line is shorter than the fixed-width fields")
+                raise FormatError(
+                    "a coordinate line is shorter than the fixed-width fields"
+                )
             text = raw.decode("latin-1").strip()
             try:
                 values[r, k] = float(text)
@@ -208,12 +210,12 @@ def _valid_cell(box):
 
 _ATOM = np.frombuffer(b"ATOM", dtype=np.uint8) if np is not None else None
 _HETATM = np.frombuffer(b"HETATM", dtype=np.uint8) if np is not None else None
-_MODEL_RE = re.compile(rb"^MODEL", re.M)
-_END_RE = re.compile(rb"^END[ \t\r]*$", re.M)
-_ATOMLINE_RE = re.compile(rb"^(?:ATOM  |HETATM)", re.M)
-_CONECT_RE = re.compile(rb"^CONECT.*$", re.M)
-_SS_RE = re.compile(rb"^(?:HELIX |SHEET ).*$", re.M)
-_CRYST1_RE = re.compile(rb"^CRYST1.*$", re.M)
+_MODEL_RE = re.compile(rb"^MODEL", re.MULTILINE)
+_END_RE = re.compile(rb"^END[ \t\r]*$", re.MULTILINE)
+_ATOMLINE_RE = re.compile(rb"^(?:ATOM  |HETATM)", re.MULTILINE)
+_CONECT_RE = re.compile(rb"^CONECT.*$", re.MULTILINE)
+_SS_RE = re.compile(rb"^(?:HELIX |SHEET ).*$", re.MULTILINE)
+_CRYST1_RE = re.compile(rb"^CRYST1.*$", re.MULTILINE)
 
 
 def _pdb_cell(data):
@@ -222,8 +224,14 @@ def _pdb_cell(data):
         return None
     text = match.group(0).decode("latin-1")
     try:
-        params = [float(text[6:15]), float(text[15:24]), float(text[24:33]),
-                  float(text[33:40]), float(text[40:47]), float(text[47:54])]
+        params = [
+            float(text[6:15]),
+            float(text[15:24]),
+            float(text[24:33]),
+            float(text[33:40]),
+            float(text[40:47]),
+            float(text[47:54]),
+        ]
     except ValueError:
         return None
     # 1 x 1 x 1 cells are placeholders written for structures without a lattice.
@@ -293,7 +301,16 @@ def peek_pdb(path):
 
 
 def _pdb_topology(block, header):
-    names, resnames, chains, resids, het, numbers, serials, icodes = [], [], [], [], [], [], [], []
+    names, resnames, chains, resids, het, numbers, serials, icodes = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     for line in block.split(b"\n"):
         rec = line[:6]
         if rec != b"HETATM" and line[:4] != b"ATOM":
@@ -305,7 +322,9 @@ def _pdb_topology(block, header):
         element = text[76:78].strip()
         z = elements.atomic_number(element) if element.isalpha() else 0
         if z == 0:
-            z = elements.atomic_number(elements.guess_pdb_element(name, resname, is_het))
+            z = elements.atomic_number(
+                elements.guess_pdb_element(name, resname, is_het)
+            )
         try:
             serials.append(int(text[6:11]))
         except ValueError:
@@ -328,9 +347,19 @@ def _pdb_topology(block, header):
         text = line.decode("latin-1")
         try:
             if text.startswith("HELIX"):
-                chain, first, last, code = text[19], int(text[21:25]), int(text[33:37]), SS_HELIX
+                chain, first, last, code = (
+                    text[19],
+                    int(text[21:25]),
+                    int(text[33:37]),
+                    SS_HELIX,
+                )
             else:
-                chain, first, last, code = text[21], int(text[22:26]), int(text[33:37]), SS_SHEET
+                chain, first, last, code = (
+                    text[21],
+                    int(text[22:26]),
+                    int(text[33:37]),
+                    SS_SHEET,
+                )
         except (IndexError, ValueError):
             continue
         mask = (chain_arr == chain) & (resid_arr >= first) & (resid_arr <= last)
@@ -369,7 +398,7 @@ def _pdb_conect(mm, serials):
             continue
         partners = Counter()
         for col in range(11, 31, 5):
-            field = text[col:col + 5].strip()
+            field = text[col : col + 5].strip()
             if not field:
                 continue
             try:
@@ -417,7 +446,9 @@ def open_pdb(path):
     system.bond_orders = _assign_orders(system.bonds, orders)
     if len(ranges) == 1:
         return system, ArrayFrames(coords[None], default_box=default_box)
-    return system, _MappedFrames(path, ranges, system.n_atoms, parse_pdb_frame, default_box)
+    return system, _MappedFrames(
+        path, ranges, system.n_atoms, parse_pdb_frame, default_box
+    )
 
 
 # ------------------------------------------------------------- line-periodic formats
@@ -429,7 +460,7 @@ def _periodic_line_offsets(mm, period):
     offsets = [0]
     line_no = 0
     for chunk_start in range(0, size, _CHUNK):
-        block = mm[chunk_start:chunk_start + _CHUNK]
+        block = mm[chunk_start : chunk_start + _CHUNK]
         nl = np.flatnonzero(np.frombuffer(block, dtype=np.uint8) == 10)
         if len(nl):
             line_index = line_no + 1 + np.arange(len(nl))
@@ -459,7 +490,7 @@ def _first_lines(mm, count, start=0):
 
 
 def _has_content_after(mm, pos):
-    return bool(mm[pos:pos + 4096].strip())
+    return bool(mm[pos : pos + 4096].strip())
 
 
 # ------------------------------------------------------------------------------ GRO
@@ -492,7 +523,7 @@ def _gro_parser(width, n_atoms):
     def parse(block):
         arr = np.frombuffer(block, dtype=np.uint8)
         all_starts = _line_starts(arr)
-        starts = all_starts[2:2 + n_atoms]
+        starts = all_starts[2 : 2 + n_atoms]
         coords = parse_fixed(arr, starts + 20, width, 3) * 10.0
         box = None
         if len(all_starts) > 2 + n_atoms:
@@ -538,7 +569,7 @@ def open_gro(path):
         if not ranges:
             raise FormatError("the GRO frame is incomplete")
         lines, _ = _first_lines(mm, n + 2)
-        block = mm[ranges[0][0]:ranges[0][1]]
+        block = mm[ranges[0][0] : ranges[0][1]]
     finally:
         mm.close()
         f.close()
@@ -546,7 +577,7 @@ def open_gro(path):
     coords, box = parse(block)
     coords = coords.astype(np.float32)
     names, resnames, resids, numbers = [], [], [], []
-    for line in lines[2:2 + n]:
+    for line in lines[2 : 2 + n]:
         try:
             resids.append(int(line[0:5]))
         except ValueError:
@@ -555,7 +586,9 @@ def open_gro(path):
         name = line[10:15].strip()
         resnames.append(resname)
         names.append(name)
-        numbers.append(elements.atomic_number(elements.guess_name_element(name, resname)))
+        numbers.append(
+            elements.atomic_number(elements.guess_name_element(name, resname))
+        )
     protein = elements._PROTEIN_RESIDUES
     het = np.array([r.upper() not in protein for r in resnames], dtype=bool)
     system = System(
@@ -577,7 +610,7 @@ def open_gro(path):
 # ------------------------------------------------------------------------------ XYZ
 
 
-_LATTICE_RE = re.compile(r'Lattice\s*=\s*"([^"]*)"', re.I)
+_LATTICE_RE = re.compile(r'Lattice\s*=\s*"([^"]*)"', re.IGNORECASE)
 
 
 def xyz_cell(comment):
@@ -597,7 +630,7 @@ def xyz_cell(comment):
 def _xyz_parser(n_atoms):
     def parse(block):
         lines = block.split(b"\n", n_atoms + 2)
-        body = lines[2:2 + n_atoms]
+        body = lines[2 : 2 + n_atoms]
         box = xyz_cell(lines[1].decode("latin-1")) if len(lines) > 1 else None
         tokens = b" ".join(body).split()
         if len(tokens) == 4 * n_atoms:
@@ -650,7 +683,7 @@ def open_xyz(path):
         if not valid:
             raise FormatError("the XYZ frame is incomplete")
         lines, _ = _first_lines(mm, n + 2)
-        block = mm[valid[0][0]:valid[0][1]]
+        block = mm[valid[0][0] : valid[0][1]]
     finally:
         mm.close()
         f.close()
@@ -660,7 +693,10 @@ def open_xyz(path):
         coords = coords.astype(np.float32)
     except ValueError as exc:
         raise FormatError(f"cannot read the XYZ coordinates: {exc}") from exc
-    numbers = [elements.atomic_number(line.split()[0]) if line.split() else 0 for line in lines[2:2 + n]]
+    numbers = [
+        elements.atomic_number(line.split()[0]) if line.split() else 0
+        for line in lines[2 : 2 + n]
+    ]
     system = System(
         numbers=np.array(numbers, dtype=np.uint8),
         bonds=perceive_bonds(coords, numbers),

@@ -12,14 +12,30 @@ except ImportError:  # pragma: no cover - numpy is a host dependency
 from . import formats, host, settings
 from .session import MODE_CONFORMERS, MODE_HYBRID, MODE_VIEW_ONLY, Session
 
+logger = logging.getLogger(__name__)
+
 STYLE_NAME = "Large System (Fast)"
 
 _DISPLAY_KEYS = frozenset(
     (
-        "representation", "inherit_host_appearance", "ball_atom_scale", "ball_bond_radius",
-        "spacefill_scale", "licorice_radius", "bond_color_by_atom", "bond_color", "specular",
-        "specular_power", "show_hydrogens", "show_water", "ribbon_helix_width",
-        "ribbon_coil_width", "ribbon_subdivide", "show_box", "box_color", "box_line_width",
+        "representation",
+        "inherit_host_appearance",
+        "ball_atom_scale",
+        "ball_bond_radius",
+        "spacefill_scale",
+        "licorice_radius",
+        "bond_color_by_atom",
+        "bond_color",
+        "specular",
+        "specular_power",
+        "show_hydrogens",
+        "show_water",
+        "ribbon_helix_width",
+        "ribbon_coil_width",
+        "ribbon_subdivide",
+        "show_box",
+        "box_color",
+        "box_line_width",
     )
 )
 
@@ -51,7 +67,7 @@ class Controller:
         try:
             self.context.show_status_message(message, timeout)
         except Exception:
-            logging.debug("status message failed", exc_info=True)
+            logger.debug("status message failed", exc_info=True)
 
     def fast_active(self):
         return host.current_style(self.mw) == STYLE_NAME
@@ -99,7 +115,9 @@ class Controller:
 
         opts = dict(self.values)
         opts["representation"] = representation
-        opts["look"] = settings.appearance(self.values, host.settings(mw), representation)
+        opts["look"] = settings.appearance(
+            self.values, host.settings(mw), representation
+        )
         opts["vdw"] = self._vdw
         opts["colors"] = color_table(host.cpk_colors(mw))
         return opts
@@ -131,11 +149,21 @@ class Controller:
         if s is None or s.mol is not mol:
             self._adopt_molecule(mol)
             s = self.session
-        elif not s.detached and s.mode != MODE_VIEW_ONLY and not s.host_matches_commit(mol):
+            if self.panel is None:
+                self._later(self.show_panel)
+        elif (
+            not s.detached
+            and s.mode != MODE_VIEW_ONLY
+            and not s.host_matches_commit(mol)
+        ):
             s.detached = True
             self.pause(commit=False)
             self.status("Coordinates were edited: playback is off for this structure.")
-        positions = mol.GetConformer().GetPositions().astype(np.float32) if mol.GetNumConformers() else s.positions()
+        positions = (
+            mol.GetConformer().GetPositions().astype(np.float32)
+            if mol.GetNumConformers()
+            else s.positions()
+        )
         box = None if s.detached else s.box(s.committed_index)
         self._render(positions, box, reset_camera=False)
         host.set_picking_positions(self.mw, positions)
@@ -146,7 +174,9 @@ class Controller:
 
         system, frames = from_rdkit(mol)
         self._close_session()
-        self.session = Session(system, formats.ArrayFrames(frames), MODE_CONFORMERS, mol=mol)
+        self.session = Session(
+            system, formats.ArrayFrames(frames), MODE_CONFORMERS, mol=mol
+        )
 
     def _render(self, positions, box, reset_camera):
         from .render import FastScene
@@ -161,8 +191,10 @@ class Controller:
             )
             self.fallback_reason = self.scene.fallback_reason
         except Exception:
-            logging.exception("Large System Viewer: drawing failed")
-            self.status("Large System Viewer could not draw this structure (see the log).")
+            logger.exception("Large System Viewer: drawing failed")
+            self.status(
+                "Large System Viewer could not draw this structure (see the log)."
+            )
         host.end_scene(mw, camera, reset_camera=reset_camera)
 
     def refresh(self):
@@ -170,7 +202,9 @@ class Controller:
         if not self.fast_active() or self.session is None:
             return
         if self.session.mode == MODE_VIEW_ONLY:
-            self._render(self.session.positions(), self.session.box(), reset_camera=False)
+            self._render(
+                self.session.positions(), self.session.box(), reset_camera=False
+            )
             self._sync_panel()
         else:
             host.redraw(self.mw)
@@ -188,7 +222,7 @@ class Controller:
         try:
             positions, box = s.frame(index)
         except Exception:
-            logging.exception("Large System Viewer: cannot read frame %d", index + 1)
+            logger.exception("Large System Viewer: cannot read frame %d", index + 1)
             self.pause(commit=False)
             self.status(f"Cannot read frame {index + 1} (see the log).")
             return
@@ -232,7 +266,10 @@ class Controller:
         was_playing = self._playing
         self._playing = False
         if was_playing:
-            host.set_interaction_enabled(self.mw, self.session is not None and self.session.mode != MODE_VIEW_ONLY)
+            host.set_interaction_enabled(
+                self.mw,
+                self.session is not None and self.session.mode != MODE_VIEW_ONLY,
+            )
             if commit:
                 self.commit()
         self._sync_panel()
@@ -313,7 +350,9 @@ class Controller:
             return False
         from .panel import ask_switch
 
-        answer, remember = ask_switch(self.mw, n_atoms, int(self.values["switch_threshold"]))
+        answer, remember = ask_switch(
+            self.mw, n_atoms, int(self.values["switch_threshold"])
+        )
         if remember:
             self.set_value("large_action", "switch" if answer else "keep")
             self._sync_panel()
@@ -327,6 +366,30 @@ class Controller:
             self._auto_switched = auto
             host.set_style(mw, STYLE_NAME)
         self.show_panel()
+
+    def restore_style(self):
+        previous = self._previous_style
+        if not previous or previous == STYLE_NAME:
+            previous = "ball_and_stick"
+        self._auto_switched = False
+        host.set_style(self.mw, previous)
+        self._sync_panel()
+
+    def export_blocked(self):
+        """True (after telling the user) when a mesh export would miss the atoms."""
+        if (
+            not self.fast_active()
+            or self.scene is None
+            or self.drawn_representation == "ribbon"
+        ):
+            return False
+        self._error(
+            "STL/OBJ export needs real meshes, which the Large System (Fast) style does "
+            "not create for atoms and bonds. Switch to a standard 3D style to export, "
+            "or use the Ribbon representation to export the ribbon alone. "
+            "3D image export (PNG) works in the Fast style."
+        )
+        return True
 
     def document_reset(self):
         if self._loading:
@@ -344,42 +407,55 @@ class Controller:
 
     # --------------------------------------------------------------- files
 
-    def open_file(self, path, from_menu=False):
-        """File opener / drop handler. False hands the file back to the host."""
+    def drop_file(self, path):
+        """Drop handler: small .xyz/.sdf/.mol keep the host's own drop behaviour."""
+        return self.open_file(path, dropped=True)
+
+    def open_file(self, path, dropped=False):
+        """File opener and drop handler.
+
+        The Import menu does not fall back to the host when an opener returns False,
+        so the small .xyz/.sdf case calls the host's own loader instead of declining.
+        """
         mw = self.mw
         if not formats.supported(path):
             return False
         try:
             peek = formats.peek(path)
-        except (formats.FormatError, OSError, ValueError) as exc:
-            if from_menu:
-                self._error(f"Cannot open {os.path.basename(path)}:\n{exc}")
-                return True
-            return False
-        except Exception:
-            logging.exception("Large System Viewer: cannot inspect %s", path)
-            return False
-
-        ext = os.path.splitext(path)[1].lower()
-        threshold = int(self.values["switch_threshold"])
-        large = peek.n_atoms > threshold
-        if not large and not peek.multi_frame:
-            if ext in (".xyz", ".sdf"):
-                if from_menu:
-                    host.native_open(mw, path)
-                    return True
+        except Exception as exc:  # noqa: BLE001 - malformed or unusual file: let the host try it
+            logger.info("Large System Viewer: %s not recognised: %s", path, exc)
+            if dropped and host.native_open_supported(path):
                 return False
+            if host.native_open(mw, path):
+                return True
+            self._error(f"Cannot open {os.path.basename(path)}: {exc}")
+            return True
+
+        large = peek.n_atoms > int(self.values["switch_threshold"])
+        if not large and not peek.multi_frame:
+            if dropped and host.native_open_supported(path):
+                return False
+            if host.native_open(mw, path):
+                return True
             return self._open_small(path)
 
-        use_fast = self.fast_active() or self.decide_switch(peek.n_atoms) if large else self.fast_active()
-        if large and not use_fast and not peek.multi_frame and ext in (".xyz", ".sdf"):
+        if large:
+            use_fast = self.fast_active() or self.decide_switch(peek.n_atoms)
+        else:
+            use_fast = self.fast_active()
+        if (
+            large
+            and not use_fast
+            and not peek.multi_frame
+            and host.native_open_supported(path)
+        ):
             # The host loads it under the current style; do not ask again on arrival.
             self._skip_prompt = True
             self._clear_skip_later()
-            if from_menu:
-                host.native_open(mw, path)
-                return True
-            return False
+            if dropped:
+                return False
+            host.native_open(mw, path)
+            return True
         if not host.check_unsaved(mw):
             return True
         return self._open_session(path, use_fast, declined=large and not use_fast)
@@ -402,7 +478,7 @@ class Controller:
         try:
             mol = self._small_molecule(path)
         except Exception as exc:
-            logging.exception("Large System Viewer: cannot read %s", path)
+            logger.exception("Large System Viewer: cannot read %s", path)
             self._error(f"Cannot open {os.path.basename(path)}:\n{exc}")
             return True
         self._loading = True
@@ -427,7 +503,7 @@ class Controller:
             if mol is not None and mol.GetNumAtoms() == system.n_atoms:
                 try:
                     Chem.SanitizeMol(mol)
-                except Exception:
+                except Exception:  # noqa: BLE001 - keep RDKit's unsanitized molecule
                     mol.UpdatePropertyCache(strict=False)
                 if system.ss is not None:
                     for atom, code in zip(mol.GetAtoms(), system.ss.tolist()):
@@ -444,13 +520,17 @@ class Controller:
         try:
             started = time.perf_counter()
             system, frames = formats.open_structure(path)
-            mode = MODE_VIEW_ONLY if (use_fast and system.n_atoms > int(self.values["host_link_limit"])) else MODE_HYBRID
+            mode = (
+                MODE_VIEW_ONLY
+                if (use_fast and system.n_atoms > int(self.values["host_link_limit"]))
+                else MODE_HYBRID
+            )
             mol = None
             if mode == MODE_HYBRID:
                 mol = self._session_molecule(system, frames)
         except Exception as exc:
             QApplication.restoreOverrideCursor()
-            logging.exception("Large System Viewer: cannot read %s", path)
+            logger.exception("Large System Viewer: cannot read %s", path)
             self._error(f"Cannot open {os.path.basename(path)}:\n{exc}")
             return True
 
@@ -469,7 +549,9 @@ class Controller:
                 host.load_molecule(mw, mol)
             else:
                 host.enter_viewer_mode(mw, features=False)
-                self._render(self.session.positions(), self.session.box(), reset_camera=True)
+                self._render(
+                    self.session.positions(), self.session.box(), reset_camera=True
+                )
                 host.set_picking_positions(mw, None)
         finally:
             self._loading = False
@@ -478,7 +560,11 @@ class Controller:
         self._reset_view_later()
         self.show_panel()
         seconds = time.perf_counter() - started
-        extra = " (view-only: too large for MoleditPy tools)" if mode == MODE_VIEW_ONLY else ""
+        extra = (
+            " (view-only: too large for MoleditPy tools)"
+            if mode == MODE_VIEW_ONLY
+            else ""
+        )
         self.status(
             f"Loaded {os.path.basename(path)}: {system.n_atoms} atoms, "
             f"{frames.n_frames} frame(s) in {seconds:.1f} s{extra}",
@@ -502,6 +588,15 @@ class Controller:
             return mol
         return to_rdkit(system, frames.read(0))
 
+    @staticmethod
+    def _later(fn, delay_ms=0):
+        try:
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(delay_ms, fn)
+        except ImportError:
+            pass
+
     def _reset_view_later(self):
         try:
             from PySide6.QtCore import QTimer
@@ -516,7 +611,7 @@ class Controller:
 
             QMessageBox.warning(self.mw, "Large System Viewer", text)
         except Exception:
-            logging.error("Large System Viewer: %s", text)
+            logger.exception("Large System Viewer: %s", text)
 
     # ------------------------------------------------------------- panel
 
@@ -550,7 +645,7 @@ class Controller:
         try:
             system, frames = formats.open_structure(path)
         except Exception:
-            logging.warning("Large System Viewer: cannot reopen %s", path, exc_info=True)
+            logger.warning("Large System Viewer: cannot reopen %s", path, exc_info=True)
             return
         if system.n_atoms != mol.GetNumAtoms():
             frames.close()
@@ -572,3 +667,4 @@ class Controller:
         self.pause(commit=False)
         self._close_session()
         host.uninstall_molecule_hook(self.mw)
+        host.uninstall_export_guard(self.mw)
