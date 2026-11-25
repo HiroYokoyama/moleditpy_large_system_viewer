@@ -1,0 +1,19 @@
+{
+  "source": "large_system_viewer/__init__.py",
+  "title": "Large System Viewer",
+  "package": "large_system_viewer",
+  "archive": "large_system_viewer_{version}.zip",
+  "assets": [
+    "large_system_viewer_{version}.zip"
+  ],
+  "include": [
+    "README.md",
+    "LICENSE",
+    "COPYING",
+    "LICENSING.md"
+  ],
+  "exclude": [
+    "*/__pycache__/*",
+    "*/.git/*"
+  ]
+}
