@@ -1,145 +1,171 @@
-# Large System Viewer 設計
+# Large System Viewer Design
 
-状態: v0.1.0 (2026-11-26)
+Status: v0.1.0 (2026-11-26)
 
-MoleditPy で大きな系 (タンパク質、溶媒込みの MD 系) と軌跡を軽く表示・再生するためのプラグイン。
-本体の変更も追加の pip 依存も無し。pip 版 MoleditPy 専用 (凍結版 exe/app は対象外)。
+A MoleditPy plugin that displays large systems (proteins, solvated MD boxes) and plays
+trajectories without the cost of the standard 3D styles. It needs no changes to the host
+and no extra pip packages. It supports the pip-installed MoleditPy only; the frozen
+exe/app builds are out of scope.
 
-## 1. 背景と方針
+## 1. Background and approach
 
-本体の標準スタイルは、原子と結合を実際のメッシュ (`glyph()` + `tube()`) に展開して描く。
-9,000 原子の水ボックスで初回 8.8 秒・再描画 25 秒・+1.4 GB (ソフトウェア GL) で、
-フレームを送るたびに全再構築になる。
+The host's standard styles expand every atom and bond into real meshes (`glyph()` +
+`tube()`). A 9,000-atom water box takes 8.8 s to draw, 25 s to redraw and +1.4 GB of
+memory (software GL), and every frame change is a full rebuild.
 
-VTK には分子用の impostor 描画 (`vtkMoleculeMapper` → `vtkOpenGLMoleculeMapper`、
-球と円柱をシェーダーで描く) と、タンパク質のリボン (`vtkProteinRibbonFilter`) が最初から入っている。
-これを本体の 3D ビュー (PyVista plotter) にそのまま載せる。
+VTK already ships impostor molecule rendering (`vtkMoleculeMapper` →
+`vtkOpenGLMoleculeMapper`, spheres and cylinders drawn in shaders) and protein ribbons
+(`vtkProteinRibbonFilter`). The plugin puts these into the host's existing 3D view
+(the PyVista plotter).
 
-実測 (Intel 内蔵 GPU、水ボックス、ball-and-stick、1280x800):
+Measured on an Intel integrated GPU, water box, ball-and-stick, 1280x800:
 
-| 原子数 | 構築 | 初回描画 | フレーム送り | 回転 1 フレーム |
+| Atoms | Build | First draw | Frame update | Rotation frame |
 |---|---|---|---|---|
 | 9,000 | 0.01 s | 0.02 s | 13 ms | 6 ms |
 | 100,000 | 0.17 s | 0.05 s | 50 ms | 11 ms |
 | 1,000,000 | 1.5 s | 0.35 s | 313 ms | 48 ms |
 
-リボン生成は 2,501 原子のタンパク質で 0.03 s。RDKit の分子組み立ては 10 万原子で 0.4 s。
+A ribbon for a 2,501-atom protein takes 0.03 s. Building an RDKit molecule of 100,000
+atoms takes 0.4 s.
 
-決めたこと:
+Decisions:
 
-- 独自 GL も Rust も使わない。VTK の既存部品と numpy だけで作る
-- ウィジェットの差し替えはしない。本体の plotter に描く (Export・背景・カメラがそのまま効く)
-- 再生中のフレームは本体の分子に入れない。一時停止したとき・スライダーを離したときだけ反映する
+- No custom GL and no Rust. Only existing VTK components and numpy.
+- The 3D widget is not replaced. The plugin draws into the host's plotter, so 3D image
+  export, background and camera keep working.
+- Frames are not written into the host molecule while playing. They are committed only
+  when playback pauses or the slider is released.
 
-## 2. 構成
+## 2. Layout
 
 ```
 large_system_viewer/
-  __init__.py   メタデータ、initialize(): opener / drop handler / 3D スタイル / パネル / セッション保存
-  elements.py   元素表: 記号 <-> 原子番号、共有結合半径、元素推定
-  formats.py    PDB / GRO / XYZ / SDF の読み込み。フレームの位置索引と遅延読み込み
-  bonds.py      距離による結合判定 (numpy のセル分割)
-  system.py     System (トポロジー) と RDKit 分子の相互変換
-  render.py     VTK シーン: impostor 原子、リボン、座標だけの更新
-  session.py    表示中の系とフレームの状態、本体への反映 (commit)
-  host.py       本体内部との接点をここに集約 (読み込み、スタイル、描画のラップ)
-  panel.py      右側のドックパネル (表示方法、再生、設定)
-  settings.py   プラグイン設定 (settings.json)
+  __init__.py   metadata, initialize(): openers, drop handler, 3D style, panel, session state
+  elements.py   element table: symbol <-> atomic number, covalent radii, element guessing
+  formats.py    PDB / GRO / XYZ / SDF readers: frame index and lazy frame reading
+  bonds.py      distance-based bond perception (numpy cell grid)
+  system.py     System (topology) and conversion to and from RDKit molecules
+  render.py     VTK scene: impostor atoms, ribbons, position-only updates
+  session.py    the displayed system and its frames, committing a frame to the host
+  host.py       every touch point with host internals (loading, styles, draw wrapper)
+  panel.py      right-hand dock panel (representation, playback, settings)
+  settings.py   plugin settings (settings.json)
 ```
 
-本体内部への依存は `host.py` に閉じ込める。本体が作り替えられたときの修正箇所を 1 か所にするため。
+Dependencies on host internals are confined to `host.py`, so a host refactor has one
+place to fix.
 
-## 3. データの流れ
+## 3. Data flow
 
-### 3.1 ファイルを開く
+### 3.1 Opening files
 
-対象: `.pdb` `.ent` `.gro` `.xyz` `.sdf`。`register_file_opener` (優先度 10) と
-`register_drop_handler` (優先度 10) で受ける。
+Handled extensions: `.pdb` `.ent` `.gro` `.xyz` `.sdf`, through `register_file_opener`
+(priority 10) and `register_drop_handler` (priority 10).
 
-1. 先頭フレームだけを見て原子数を数え、ファイル全体からフレームの開始位置を索引する
-2. 振り分け
-   - 単一フレーム、かつ原子数が自動切替しきい値以下:
-     - `.xyz` `.sdf`: `False` を返し本体の読み込みに任せる (ドラッグ&ドロップ・起動引数)。
-       プラグインの Import メニューから開いた場合は本体の読み込み関数を直接呼ぶ
-     - `.pdb` `.ent`: RDKit の PDB パーサで読み、本体の 3D Viewer Mode に渡す (結合次数を CONECT から拾える)
-     - `.gro`: 自前の読み込みで本体に渡す
-   - それ以外 (大きい、または複数フレーム): プラグインがセッションを作る
-3. セッションのモード
-   - **ハイブリッド** (原子数が本体連携上限以下): 先頭フレームから RDKit 分子を組み立て、
-     本体の 3D Viewer Mode に渡す。計測・書き出し・他プラグインが「今のフレーム」に対して使える
-   - **閲覧専用** (上限超え): 本体の分子は空のまま、プラグインが plotter に直接描く
+1. Count the atoms of the first frame and index the frame start offsets of the whole file.
+2. Route:
+   - Single frame at or below the auto-switch threshold:
+     - `.xyz` `.sdf`: return `False` so the host loader takes it (drag and drop, command
+       line). When opened from the plugin's own Import menu entry, call the host loader
+       directly.
+     - `.pdb` `.ent`: read with RDKit's PDB parser and hand it to the host's 3D Viewer
+       Mode (bond orders come from CONECT records).
+     - `.gro`: read with the plugin's reader and hand it to the host.
+   - Otherwise (large, or more than one frame): the plugin starts a session.
+3. Session modes:
+   - **Hybrid** (atoms at or below the host-link limit): build an RDKit molecule from the
+     first frame and hand it to the host's 3D Viewer Mode. Measurement, export and other
+     plugins work on the current frame.
+   - **View-only** (above the limit): the host molecule stays empty and the plugin draws
+     into the plotter directly.
 
-SDF は「全レコードの元素の並びが同じ」ときだけフレーム列として扱う。違えば本体に任せる。
+An SDF file is treated as frames only when every record has the same element sequence;
+otherwise the host loads it.
 
-### 3.2 既存の構造 (スタイル切替)
+### 3.2 Existing structures (style switching)
 
-- Style メニューに `Large System (Fast)` を登録する。どの構造に対しても手で選べる
-- `view_3d_manager.draw_molecule_3d` をラップし、本体のどこから読み込んでも原子数を見る
-  - しきい値超えで標準スタイルなら、自動で Fast に切り替える (元のスタイルを覚える)
-  - 自動で切り替えた後に小さい構造が来たら、元のスタイルに戻す。手で選んだ場合は戻さない
-- 複数 conformer を持つ分子は、conformer をフレームとして再生できる
+- `Large System (Fast)` is registered in the Style menu and can be chosen for any structure.
+- `view_3d_manager.draw_molecule_3d` is wrapped so the atom count is checked no matter how
+  the structure was loaded:
+  - Above the threshold under a standard style, switch to Fast automatically and remember
+    the previous style.
+  - After an automatic switch, a small structure switches the style back. A style the user
+    chose by hand is never switched back.
+- A molecule with several conformers plays its conformers as frames.
 
-### 3.3 フレーム
+### 3.3 Frames
 
-| 状態 | 本体の分子 | 描画 |
+| State | Host molecule | Drawing |
 |---|---|---|
-| 再生中 | 触らない | VTK の座標配列だけ書き換えて `plotter.render()` |
-| 一時停止・スライダーを離した | conformer 座標と `atom_positions_3d` に反映 | 通常の再描画 |
+| Playing | untouched | overwrite the VTK coordinate array and `plotter.render()` |
+| Paused / slider released | conformer coordinates and `atom_positions_3d` updated | normal redraw |
 
-- 反映は表示の変更として扱い、Undo 履歴にも未保存フラグにも載せない
-- 再生中は計測モードと 3D 編集を止める
-- Fast 以外のスタイルでも再生できる。その場合は毎フレーム反映して本体が描く
-  (小さい系向け。描画が終わってから次のフレームに進むのでキューは溜まらない)
-- 一時停止中に本体側で座標が変わった (3D 編集など) ら、軌跡から切り離して再生を無効にする
+- A commit is a view change: it adds no undo step and does not mark the project modified.
+- Measurement mode and 3D editing are switched off while playing.
+- Playback also works under other styles. Each frame is then committed and drawn by the
+  host (meant for small systems; the next frame waits for the draw, so nothing queues).
+- If the host changes the coordinates while paused (3D editing, for example), the session
+  detaches from the trajectory and playback is disabled.
 
-## 4. 描画
+## 4. Rendering
 
-- 表示方法: Ball and Stick / Spacefill / Licorice / Ribbon / Ribbon + Ligands
-- 原子と結合は `vtkMoleculeMapper`。色は本体の CPK 色 (設定で変えた色を含む) をルックアップテーブルで渡す
-- リボンは `vtkProteinRibbonFilter` に、PDB/GRO から作った点データ
-  (原子名・残基番号・鎖・二次構造・HETATM フラグ) を渡す。
-  二次構造は PDB の HELIX / SHEET 行から取る。無いファイル (MD の出力など) はすべてループになる
-- Ribbon + Ligands は、タンパク質をリボン、水以外の HETATM を ball-and-stick で描く
-- 座標更新: `vtkMolecule` の座標配列を numpy で上書きして `Modified()`。リボンはそのフレームで作り直す
-- 背景・軸・投影法は本体の `apply_3d_settings(redraw=False)` に任せる
+- Representations: Ball and Stick / Spacefill / Licorice / Ribbon / Ribbon + Ligands.
+- Atoms and bonds use `vtkMoleculeMapper`. Colours come from the host's CPK table,
+  including user overrides, through a lookup table.
+- Ribbons feed `vtkProteinRibbonFilter` with point data built from PDB/GRO (atom names,
+  residue numbers, chains, secondary structure, HETATM flags). Secondary structure comes
+  from PDB HELIX / SHEET records; files without them (typical MD output) draw as coil.
+- Ribbon + Ligands draws the protein as a ribbon and non-water HETATM as ball-and-stick.
+- Position updates overwrite the `vtkMolecule` coordinate array with numpy and call
+  `Modified()`. Ribbons are rebuilt for the new frame.
+- Background, axes and projection are left to the host's `apply_3d_settings(redraw=False)`.
 
-## 5. 読み込みの実装
+## 5. Reading
 
-- フレーム索引: ファイルを mmap し、PDB は `MODEL` 行 (無ければ `END` 行)、XYZ と GRO は
-  改行位置を 64 MB ずつ numpy で数えてフレーム境界だけを記録する。巨大な軌跡でも全体をメモリに載せない
-- 座標の解析: PDB と GRO の座標は固定幅 (`%8.3f`)。行頭位置から 24 バイトを numpy で切り出し、
-  文字コードの演算でまとめて数値にする (Python の行ループ無し)。XYZ は空白区切りのトークンを一括変換する
-- 元素: PDB は 77–78 桁、無ければ原子名から推定。GRO は原子名と残基名 (イオン) から推定
-- 結合: 先頭フレームで距離判定 (`d < r_i + r_j + 0.4 Å`、水素は最も近い 1 本だけ) + PDB の CONECT。
-  以降のフレームでは作り直さない。周期境界は考慮しない
+- Frame index: the file is memory-mapped. PDB frames start at `MODEL` records (or follow
+  `END` records). XYZ and GRO count newlines with numpy in 64 MB chunks and keep only the
+  frame boundaries, so huge trajectories are never loaded whole.
+- Coordinate parsing: PDB and GRO coordinates are fixed width (`%8.3f`). The 24 bytes after
+  each line start are gathered with numpy and converted arithmetically in one pass, with no
+  Python loop per line. XYZ converts whitespace tokens in bulk.
+- Elements: PDB columns 77-78, else guessed from the atom name. GRO guesses from the atom
+  name and, for ions, the residue name.
+- Bonds: distance test on the first frame (`d < r_i + r_j + 0.4 Å`, each hydrogen keeps only
+  its nearest partner) plus PDB CONECT records. Bonds are not recomputed for later frames.
+  Periodic boundaries are ignored.
 
-## 6. UI (右側のドックパネル)
+## 6. UI (right-hand dock panel)
 
-- ソース: ファイル名、原子数、フレーム数、モード (ハイブリッド / 閲覧専用 / conformer)
-- 表示: 表示方法、Fast スタイルを使うボタン
-- 再生: 先頭 / 1 つ戻る / 再生・一時停止 / 1 つ進む / 末尾、スライダー、フレーム番号、fps、間引き、ループ
-- 設定: 自動切替 (有効/無効、しきい値)、本体連携の上限原子数
+- Source: file name, atoms, frames, mode (hybrid / view-only / conformers).
+- Display: representation, a button that switches to the Fast style.
+- Playback: first / previous / play-pause / next / last, slider, frame number, fps, stride, loop.
+- Settings: auto-switch (on/off, threshold), host-link atom limit.
 
-セッションが始まると自動で開く。View メニューからも開ける。
+The panel opens when a session starts and can be opened from the View menu.
 
-## 7. 保存
+## 7. Persistence
 
-- プラグイン設定は `settings.json` (パッケージの横)
-- プロジェクト (`.pmeprj`) には、ファイルから開いたセッションのパス・フレーム番号・表示方法を保存する。
-  読み込み時、ファイルがあり原子数が一致すればセッションを復元する。軌跡そのものは保存しない
+- Plugin settings live in `settings.json` beside the package.
+- A project (`.pmeprj`) stores the session's file path, frame number and representation for
+  sessions opened from a file. On load the session is restored when the file exists and the
+  atom count matches. The trajectory itself is not stored.
 
-## 8. 既知の制限
+## 8. Known limitations
 
-- 原子ラベル (Index・元素記号など)、芳香環、二重結合の描き分け、キラリティ表示は Fast スタイルでは出ない
-- STL / OBJ 書き出しは impostor 描画にメッシュが無いので空になる
-- PDB の原子番号欄は 5 桁なので、99,999 原子を超える PDB の CONECT は信用しない (距離判定だけ使う)
-- 結合は先頭フレームで固定。周期境界をまたぐ結合は描かない
-- 閲覧専用モードでは本体の計測・書き出し (MOL/XYZ)・他プラグインは使えない
-- XTC / DCD などのバイナリ軌跡、MD 出力向けの二次構造計算 (DSSP) は未対応
+- Atom labels (index, element symbol and so on), aromatic rings, bond-order display and
+  chirality labels are not drawn in the Fast style.
+- STL / OBJ export is empty: impostor rendering has no mesh.
+- PDB serial numbers have five columns, so CONECT records of PDB files above 99,999 atoms are
+  ignored and only the distance test is used.
+- Bonds are fixed from the first frame. Bonds across periodic boundaries are not drawn.
+- In view-only mode host measurement, MOL/XYZ export and other plugins are unavailable.
+- Binary trajectories (XTC, DCD) and secondary-structure assignment for MD output (DSSP)
+  are not supported.
 
-## 9. 今後
+## 9. Future work
 
-- XTC / DCD (トポロジー PDB + 軌跡)
-- 簡易 DSSP
-- 別スレッドでのフレーム先読み
-- 鎖・残基での選択と表示
+- XTC / DCD (topology PDB + trajectory)
+- A simplified DSSP
+- Frame prefetching on a worker thread
+- Selection and display by chain and residue
