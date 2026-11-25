@@ -22,6 +22,7 @@ PLUGIN_TAGS = ["Visualization", "File"]
 PLUGIN_DEPENDENCIES = []
 PLUGIN_OPTIONAL_DEPENDENCIES = []
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
+PLUGIN_LICENSE = "LGPL-3.0-or-later"
 
 EXTENSIONS = (".pdb", ".ent", ".gro", ".xyz", ".sdf")
 OPENER_PRIORITY = 10
