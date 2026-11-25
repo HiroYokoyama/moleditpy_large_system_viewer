@@ -15,9 +15,15 @@ REPRESENTATIONS = (
 )
 RIBBON_REPRESENTATIONS = ("ribbon", "ribbon_ligands")
 
+LARGE_ACTIONS = (
+    ("ask", "Ask"),
+    ("switch", "Always switch to the Fast style"),
+    ("keep", "Keep the current style"),
+)
+
 DEFAULTS = {
     # Switching
-    "prompt_enabled": True,  # ask before switching a large structure to the Fast style
+    "large_action": "ask",  # large structure under another style: ask / switch / keep
     "switch_threshold": 2000,  # atoms
     "restore_style": True,  # return to the previous style for a small structure
     "host_link_limit": 50000,  # atoms; larger files open view-only
@@ -84,6 +90,8 @@ def coerce(key, value):
         lo, hi = _LIMITS[key]
         out = type(default)(min(max(out, lo), hi))
     if key == "representation" and out not in dict(REPRESENTATIONS):
+        return default
+    if key == "large_action" and out not in dict(LARGE_ACTIONS):
         return default
     if key.endswith("_color") and not (out.startswith("#") and len(out) == 7):
         return default
