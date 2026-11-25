@@ -48,8 +48,9 @@ large_system_viewer/
   system.py     System (topology) and conversion to and from RDKit molecules
   render.py     VTK scene: impostor atoms, ribbons, position-only updates
   session.py    the displayed system and its frames, committing a frame to the host
-  host.py       every touch point with host internals (loading, styles, draw wrapper)
-  panel.py      right-hand dock panel (representation, playback, settings)
+  host.py       every touch point with host internals (loading, styles, molecule hook, export guard)
+  controller.py routing, style switching, playback, persistence handlers
+  panel.py      right-hand dock panel (representation, playback, settings) and the switch question
   settings.py   plugin settings (settings.json)
 ```
 
@@ -66,13 +67,15 @@ Handled extensions: `.pdb` `.ent` `.gro` `.xyz` `.sdf`, through `register_file_o
 1. Count the atoms of the first frame and index the frame start offsets of the whole file.
 2. Route:
    - Single frame at or below the auto-switch threshold:
-     - `.xyz` `.sdf`: return `False` so the host loader takes it (drag and drop, command
-       line). When opened from the plugin's own Import menu entry, call the host loader
-       directly.
+     - `.xyz` `.sdf`: call the host's own loader. A drop returns `False` instead, so the
+       host keeps its 2D/3D drop behaviour. (The Import menu does not fall back to the host
+       when an opener returns `False`, so the opener cannot simply decline.)
      - `.pdb` `.ent`: read with RDKit's PDB parser and hand it to the host's 3D Viewer
        Mode (bond orders come from CONECT records).
      - `.gro`: read with the plugin's reader and hand it to the host.
-   - Otherwise (large, or more than one frame): the plugin starts a session.
+   - Otherwise (large, or more than one frame): the plugin starts a session. A large file
+     first asks whether to use the Fast style (see 3.2). A declined single-frame `.xyz`/`.sdf`
+     goes to the host loader without a second question.
 3. Session modes:
    - **Hybrid** (atoms at or below the host-link limit): build an RDKit molecule from the
      first frame and hand it to the host's 3D Viewer Mode. Measurement, export and other
@@ -86,12 +89,16 @@ otherwise the host loads it.
 ### 3.2 Existing structures (style switching)
 
 - `Large System (Fast)` is registered in the Style menu and can be chosen for any structure.
-- `view_3d_manager.draw_molecule_3d` is wrapped so the atom count is checked no matter how
-  the structure was loaded:
-  - Above the threshold under a standard style, switch to Fast automatically and remember
-    the previous style.
-  - After an automatic switch, a small structure switches the style back. A style the user
-    chose by hand is never switched back.
+- `MainWindow.set_current_molecule` is wrapped so the atom count is checked no matter how
+  the structure arrived (any loader, undo, other plugins through
+  `PluginContext.current_molecule`). `draw_molecule_3d` is deliberately not wrapped: the CIF
+  Viewer wraps and restores it while its dock is shown, which would drop a second wrapper.
+- Above the threshold under another style, the `large_action` setting decides:
+  - `ask` (default): a question with Yes as the default button and a "Do not ask again"
+    box that stores the answer. No keeps the current style for the rest of the document.
+  - `switch`: switch without asking. `keep`: never switch.
+- After an automatic switch, a small structure switches the style back (`restore_style`).
+  A style the user chose by hand is never switched back.
 - A molecule with several conformers plays its conformers as frames.
 
 ### 3.3 Frames
@@ -120,6 +127,13 @@ otherwise the host loads it.
 - Position updates overwrite the `vtkMolecule` coordinate array with numpy and call
   `Modified()`. Ribbons are rebuilt for the new frame.
 - Background, axes and projection are left to the host's `apply_3d_settings(redraw=False)`.
+- Appearance follows MoleditPy's own 3D settings by default (ball-and-stick atom scale and
+  bond radius, CPK bond colouring, bond colour, CPK scale, stick radius, specular, lighting,
+  background, CPK colours). Turning `inherit_host_appearance` off uses the plugin's values.
+- Periodic box: the cell from GRO box lines (including triclinic), PDB `CRYST1` (cells of
+  1 Å or less are placeholders and ignored) or extended-XYZ `Lattice=` is drawn as 12 lines.
+  It can be switched off, and its colour and line width are settings. Each frame may carry
+  its own box.
 
 ## 5. Reading
 
@@ -137,10 +151,15 @@ otherwise the host loads it.
 
 ## 6. UI (right-hand dock panel)
 
-- Source: file name, atoms, frames, mode (hybrid / view-only / conformers).
-- Display: representation, a button that switches to the Fast style.
-- Playback: first / previous / play-pause / next / last, slider, frame number, fps, stride, loop.
-- Settings: auto-switch (on/off, threshold), host-link atom limit.
+- Structure: file name, atoms, frames, mode (hybrid / view-only / conformers), whether a box
+  was found, notes (ribbon fallback, detached session).
+- Representation, and a button that switches to the Fast style or back to the previous one.
+- Frames: first / previous / play-pause / next / last, slider, frame number, fps, step, loop.
+- Appearance: inherit-from-MoleditPy switch and the plugin's own radii, bond colour and
+  specular values (disabled while inheriting), hydrogens and water on/off.
+- Ribbon widths and smoothness; periodic box on/off, colour and line width.
+- Switching: large-structure action (ask / switch / keep), threshold, restore previous
+  style, view-only atom limit. A reset button restores the defaults.
 
 The panel opens when a session starts and can be opened from the View menu.
 
@@ -155,7 +174,8 @@ The panel opens when a session starts and can be opened from the View menu.
 
 - Atom labels (index, element symbol and so on), aromatic rings, bond-order display and
   chirality labels are not drawn in the Fast style.
-- STL / OBJ export is empty: impostor rendering has no mesh.
+- STL / OBJ export has no atoms: impostor rendering has no mesh. The exporters are
+  guarded and explain this instead of writing an incomplete file (a pure ribbon exports).
 - PDB serial numbers have five columns, so CONECT records of PDB files above 99,999 atoms are
   ignored and only the distance test is used.
 - Bonds are fixed from the first frame. Bonds across periodic boundaries are not drawn.

@@ -53,6 +53,7 @@ class Controller:
         self._auto_switched = False
         self._declined = False
         self._skip_prompt = False
+        self._pending_restore = None
         self._loading = False
         self._playing = False
         self._vdw = None
@@ -316,6 +317,9 @@ class Controller:
         """Host received a new current molecule (any loader, undo, other plugins)."""
         if self._loading:
             return
+        pending, self._pending_restore = self._pending_restore, None
+        if pending is not None:
+            self._apply_restore(pending, mol)
         if self.session is not None and self.session.mol is mol:
             return
         mw = self.mw
@@ -633,23 +637,33 @@ class Controller:
         }
 
     def restore(self, data):
-        """Reattach a file session after a project load when the atom count matches."""
-        if not isinstance(data, dict):
+        """Project load handler.
+
+        MoleditPy calls load handlers before it sets the project's molecule, so the
+        state is kept until that molecule arrives (on_new_molecule) and dropped once
+        the load has finished.
+        """
+        if not isinstance(data, dict) or not isinstance(data.get("path"), str):
             return
-        path = data.get("path")
-        if not isinstance(path, str) or not os.path.isfile(path):
-            return
-        mol = host.current_molecule(self.mw)
-        if mol is None:
-            return
+        self._pending_restore = data
+        self._later(self._drop_pending_restore)
+
+    def _drop_pending_restore(self):
+        self._pending_restore = None
+
+    def _apply_restore(self, data, mol):
+        """Reattach a file session when the file still exists and the atom count matches."""
+        path = data["path"]
+        if not os.path.isfile(path):
+            return False
         try:
             system, frames = formats.open_structure(path)
         except Exception:
             logger.warning("Large System Viewer: cannot reopen %s", path, exc_info=True)
-            return
+            return False
         if system.n_atoms != mol.GetNumAtoms():
             frames.close()
-            return
+            return False
         self._close_session()
         self.session = Session(system, frames, MODE_HYBRID, path=path, mol=mol)
         frame = data.get("frame", 0)
@@ -659,9 +673,10 @@ class Controller:
         rep = data.get("representation")
         if rep in dict(settings.REPRESENTATIONS):
             self.values["representation"] = rep
-        if self.fast_active():
-            host.redraw(self.mw)
-        self._sync_panel()
+        if not self.session.host_matches_commit(mol):
+            self.session.detached = True
+        self._later(self._sync_panel)
+        return True
 
     def shutdown(self):
         self.pause(commit=False)

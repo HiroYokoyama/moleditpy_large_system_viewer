@@ -219,3 +219,28 @@ def test_formats_peek_used_by_routing(tmp_path):
     path = tmp_path / "a.xyz"
     path.write_text("1\nx\nHe 0 0 0\n", encoding="utf-8")
     assert formats.peek(str(path)).n_atoms == 1
+
+
+def test_project_restore_waits_for_the_molecule(env, monkeypatch):
+    pytest.importorskip("rdkit")
+    from large_system_viewer.system import to_rdkit
+
+    c, _calls, _state, tmp = env
+    monkeypatch.setattr(c, "_later", lambda fn, delay_ms=0: None)
+    traj = tmp / "t.xyz"
+    traj.write_text(
+        "".join(f"3\nw\nO 0 0 {f}\nH 0.96 0 {f}\nH -0.24 0.93 {f}\n" for f in range(3)),
+        encoding="utf-8",
+    )
+    system, frames = formats.open_structure(str(traj))
+    mol = to_rdkit(system, frames.read(2))
+    c.restore({"path": str(traj), "frame": 2, "representation": "licorice"})
+    assert c.session is None  # the molecule is not there yet
+    c.on_new_molecule(mol)
+    assert c.session is not None and c.session.mol is mol
+    assert (c.session.index, c.session.committed_index, c.session.detached) == (
+        2,
+        2,
+        False,
+    )
+    assert c.values["representation"] == "licorice"
