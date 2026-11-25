@@ -10,7 +10,7 @@ playback, all inside MoleditPy's own 3D view.
 
 Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://github.com/HiroYokoyama/moleditpy_large_system_viewer)
 
-![Protein drawn as ribbons with ligands](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/protein_ribbon.png)
+![A solvated protein trajectory (29,685 atoms, 6 frames) in the Fast style with its periodic box](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/solvated_protein.png)
 
 ---
 
@@ -36,7 +36,7 @@ Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://gi
 - **Works with the CIF Viewer**: CIF supercells above the threshold are offered the Fast style
   and keep the CIF Viewer's cell overlays.
 
-![A 99,999-atom water box trajectory with its periodic box](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/water_box_trajectory.png)
+![The same system as Ribbon + Ligands with water hidden](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/protein_ribbon.png)
 
 ---
 
@@ -55,6 +55,8 @@ Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://gi
 ### Settings
 
 Every setting is in the panel and is saved in `settings.json` beside the plugin:
+
+![Panel settings: appearance, ribbon, periodic box and switching](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/settings_panel.png)
 
 | Group | Settings |
 |---|---|
