@@ -162,10 +162,3 @@ The panel opens when a session starts and can be opened from the View menu.
 - In view-only mode host measurement, MOL/XYZ export and other plugins are unavailable.
 - Binary trajectories (XTC, DCD) and secondary-structure assignment for MD output (DSSP)
   are not supported.
-
-## 9. Future work
-
-- XTC / DCD (topology PDB + trajectory)
-- A simplified DSSP
-- Frame prefetching on a worker thread
-- Selection and display by chain and residue
