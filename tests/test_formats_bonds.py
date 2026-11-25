@@ -4,8 +4,8 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-from large_system_viewer import bonds, formats  # noqa: E402
-from large_system_viewer.session import MODE_HYBRID, Session  # noqa: E402
+from large_system_viewer import bonds, formats
+from large_system_viewer.session import MODE_HYBRID, Session
 
 WATER = [("OW", 0.0, 0.0, 0.0), ("HW1", 0.096, 0.0, 0.0), ("HW2", -0.024, 0.093, 0.0)]
 

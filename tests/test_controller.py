@@ -6,15 +6,15 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-from large_system_viewer import controller as ctl  # noqa: E402
-from large_system_viewer import formats, host, settings  # noqa: E402
+from large_system_viewer import controller as ctl
+from large_system_viewer import formats, host, settings
 
 
 class FakeMol:
     def __init__(self, n):
         self.n = n
 
-    def GetNumAtoms(self):  # noqa: N802 - RDKit API
+    def GetNumAtoms(self):
         return self.n
 
 
@@ -51,7 +51,7 @@ def env(monkeypatch, tmp_path):
 
 
 def _answer(monkeypatch, calls, answer, remember=False):
-    import large_system_viewer.panel as panel
+    from large_system_viewer import panel
 
     def ask(_mw, _n, _t):
         calls["asked"] += 1
