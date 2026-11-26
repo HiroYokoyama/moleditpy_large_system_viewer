@@ -29,7 +29,8 @@ Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://gi
   the main window.
 - **Trajectories**: multi-model PDB, GRO, multi-frame XYZ and multi-record SDF play with
   first / previous / play / next / last buttons, a slider, frame rate, step and loop.
-  Frames are read lazily from a memory-mapped file, so long trajectories are never loaded whole.
+  PDB, GRO and XYZ frames are read lazily from a memory-mapped file, so long trajectories
+  are never loaded whole; SDF records are read into memory when the file opens.
 - **Linked to MoleditPy**: the paused frame is written into the current molecule, so
   measurement, 3D image export and other plugins work on it. Files above the view-only
   limit (50,000 atoms by default) are shown by the plugin alone.
@@ -84,8 +85,9 @@ the trajectory on load when the file is still there.
 - Supports MoleditPy installed with pip. The packaged exe/app builds are not supported.
 - STL/OBJ export needs real meshes, which the Fast style does not create for atoms and
   bonds; switch to a standard style to export (a pure ribbon exports). 3D image export works.
-- Atom labels, aromatic rings, bond-order display and stereo labels are not drawn in the
-  Fast style.
+- Atom labels, aromatic rings and stereo labels are not drawn in the Fast style. Double and
+  triple bonds known from an SDF file or the MoleditPy molecule are drawn as parallel
+  cylinders; aromatic bonds, and all bonds found by distance, are drawn as single bonds.
 - Bonds come from the first frame (distance test plus PDB `CONECT`); bonds across periodic
   boundaries are not drawn.
 - Secondary structure comes from PDB `HELIX`/`SHEET` records; MD output without them is
