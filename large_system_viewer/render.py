@@ -134,11 +134,51 @@ def ribbon_color_options(options):
     }
 
 
-def ribbon_rgb(vtk_rgb, colors, chain_number):
+def rainbow(fractions):
+    """Blue (0) through cyan, green and yellow to red (1), as uint8 RGB."""
+    hue = (1.0 - np.clip(np.asarray(fractions, dtype=np.float64), 0.0, 1.0)) * (
+        240.0 / 60.0
+    )
+    x = 1.0 - np.abs(hue % 2.0 - 1.0)
+    sector = np.floor(hue).astype(int).clip(0, 4)
+    zero = np.zeros_like(hue)
+    one = np.ones_like(hue)
+    table = (
+        (one, x, zero),  # red -> yellow
+        (x, one, zero),  # yellow -> green
+        (zero, one, x),  # green -> cyan
+        (zero, x, one),  # cyan -> blue
+        (zero, zero, one),  # blue
+    )
+    rgb = np.zeros((len(hue), 3))
+    for k, (r, g, b) in enumerate(table):
+        mask = sector == k
+        rgb[mask] = np.stack([r[mask], g[mask], b[mask]], axis=1)
+    return (rgb * 255).round().astype(np.uint8)
+
+
+def nearest_fraction(points, guides, chunk=2048):
+    """For each point, the position (0..1) of the nearest guide atom along the chain."""
+    points = np.asarray(points, dtype=np.float64)
+    guides = np.asarray(guides, dtype=np.float64)
+    n = len(guides)
+    if n == 0 or len(points) == 0:
+        return np.zeros(len(points))
+    nearest = np.empty(len(points), dtype=np.int64)
+    for start in range(0, len(points), chunk):
+        block = points[start : start + chunk]
+        d = ((block[:, None, :] - guides[None, :, :]) ** 2).sum(axis=2)
+        nearest[start : start + len(block)] = d.argmin(axis=1)
+    return nearest / max(1, n - 1)
+
+
+def ribbon_rgb(vtk_rgb, colors, chain_number, fractions=None):
     """Colours for ribbon points painted by vtkProteinRibbonFilter."""
     out = np.empty_like(vtk_rgb)
     mode = colors["mode"]
-    if mode == "uniform":
+    if mode == "rainbow" and fractions is not None and len(fractions) == len(out):
+        out[:] = rainbow(fractions)
+    elif mode == "uniform":
         out[:] = colors["uniform"]
     elif mode == "chain":
         palette = colors["palette"]
@@ -215,6 +255,8 @@ class FastScene:
         self._mol = None
         self._mol_index = None
         self._ribbons = []  # (points polydata, atom index, filter, chain number)
+        self._ribbon_guides = {}  # chain number -> CA rows in its polydata
+        self._ribbon_fractions = {}  # chain number -> per-point position along chain
         self._ribbon_append = None
         self._ribbon_colors = None
         self._box_points = None
@@ -251,6 +293,10 @@ class FastScene:
             self._build_atoms(vtk, system, positions, atom_mask, options)
         if box is not None and options.get("show_box", True):
             self._build_box(vtk, box, options)
+        for name, key in (("atoms", "atom_opacity"), ("ribbon", "ribbon_opacity")):
+            actor = self.actors.get(name)
+            if actor is not None:
+                actor.GetProperty().SetOpacity(float(options.get(key, 1.0)))
         return rep
 
     def _add(self, name, actor):
@@ -349,6 +395,9 @@ class FastScene:
             if len(sub) == 0:
                 continue
             poly = self._ribbon_input(vtk, system, positions, sub, options)
+            self._ribbon_guides[number] = np.flatnonzero(
+                np.array([system.names[i].strip() == "CA" for i in sub.tolist()])
+            )
             ribbon = vtk["vtkProteinRibbonFilter"]()
             ribbon.SetInputData(poly)
             ribbon.SetDrawSmallMoleculesAsSpheres(False)
@@ -443,11 +492,24 @@ class FastScene:
 
     def _paint_ribbon(self, vtk, ribbon, chain_number):
         """Recolour the filter output in place (it is rebuilt on every update)."""
-        scalars = ribbon.GetOutput().GetPointData().GetScalars()
+        output = ribbon.GetOutput()
+        scalars = output.GetPointData().GetScalars()
         if scalars is None or scalars.GetNumberOfComponents() < 3:
             return
         rgb = vtk["vtk_to_numpy"](scalars)
-        rgb[:, :3] = ribbon_rgb(rgb[:, :3], self._ribbon_colors, chain_number)
+        fractions = None
+        if self._ribbon_colors["mode"] == "rainbow":
+            fractions = self._ribbon_fractions.get(chain_number)
+            if fractions is None or len(fractions) != len(rgb):
+                # The ribbon keeps its point layout between frames: map it once.
+                points = vtk["vtk_to_numpy"](output.GetPoints().GetData())
+                source = vtk["vtk_to_numpy"](ribbon.GetInput().GetPoints().GetData())
+                guides = source[self._ribbon_guides.get(chain_number, [])]
+                fractions = nearest_fraction(points, guides)
+                self._ribbon_fractions[chain_number] = fractions
+        rgb[:, :3] = ribbon_rgb(
+            rgb[:, :3], self._ribbon_colors, chain_number, fractions
+        )
         scalars.Modified()
 
     def _build_box(self, vtk, box, options):
@@ -524,6 +586,8 @@ class FastScene:
         self._mol = None
         self._mol_index = None
         self._ribbons = []
+        self._ribbon_guides = {}
+        self._ribbon_fractions = {}
         self._ribbon_append = None
         self._ribbon_colors = None
         self._box_points = None

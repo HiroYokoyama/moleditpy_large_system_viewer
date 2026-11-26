@@ -20,6 +20,9 @@ _DISPLAY_KEYS = frozenset(
     (
         "representation",
         "ribbon_color_mode",
+        "ribbon_opacity",
+        "atom_opacity",
+        "ligand_style",
         "ribbon_helix_color",
         "ribbon_sheet_color",
         "ribbon_coil_color",
@@ -63,6 +66,7 @@ class Controller:
         self._pending_restore = None
         self._loading = False
         self._playing = False
+        self._direction = 1  # +1 forward, -1 backward (bounce)
         self._vdw = None
 
     # ------------------------------------------------------------------ basics
@@ -144,9 +148,13 @@ class Controller:
 
         opts = dict(self.values)
         opts["representation"] = representation
-        opts["look"] = settings.appearance(
-            self.values, host.settings(mw), representation
+        # Ribbon + Ligands draws its ligands in the chosen ligand style.
+        look_style = (
+            self.values.get("ligand_style", "ball_and_stick")
+            if representation in settings.RIBBON_REPRESENTATIONS
+            else representation
         )
+        opts["look"] = settings.appearance(self.values, host.settings(mw), look_style)
         opts["vdw"] = self._vdw
         opts["colors"] = color_table(host.cpk_colors(mw))
         return opts
@@ -326,18 +334,36 @@ class Controller:
         if not self._playing or s is None:
             return
         started = time.perf_counter()
-        nxt = s.index + int(self.values["stride"])
-        if nxt >= s.n_frames:
-            if not self.values["loop"]:
-                self.show_frame(s.n_frames - 1, commit=False)
-                self.pause()
-                return
-            nxt = 0
+        nxt = self._next_index(s.index, s.n_frames)
+        if nxt is None:
+            self.show_frame(s.n_frames - 1, commit=False)
+            self.pause()
+            return
         self.show_frame(nxt, commit=False)
         if not self._playing:
             return
         elapsed = (time.perf_counter() - started) * 1000.0
         self._schedule(1000.0 / float(self.values["fps"]) - elapsed)
+
+    def _next_index(self, index, n_frames):
+        """Next frame while playing, or None to stop at the end."""
+        stride = int(self.values["stride"])
+        if not self.values.get("bounce"):
+            self._direction = 1
+        nxt = index + stride * self._direction
+        if self.values.get("bounce") and n_frames > 1:
+            if nxt >= n_frames:
+                self._direction = -1
+                nxt = max(0, index - stride)
+            elif nxt < 0:
+                self._direction = 1
+                if not self.values["loop"]:
+                    return None  # once there and back
+                nxt = min(n_frames - 1, index + stride)
+            return nxt
+        if nxt >= n_frames:
+            return 0 if self.values["loop"] else None
+        return nxt
 
     # ------------------------------------------------------------- the hook
 

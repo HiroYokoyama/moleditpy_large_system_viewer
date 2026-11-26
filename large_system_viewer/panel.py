@@ -52,12 +52,14 @@ _INHERITED = (
 
 # Keys restored by each Reset button (one per tab).
 GROUP_KEYS = {
-    "structure": ("representation", "fps", "stride", "loop"),
+    "structure": ("representation", "fps", "stride", "loop", "bounce"),
     "appearance": (
         "inherit_host_appearance",
         *_INHERITED,
         "show_hydrogens",
         "show_water",
+        "atom_opacity",
+        "ligand_style",
     ),
     "ribbon": (
         "ribbon_color_mode",
@@ -65,6 +67,7 @@ GROUP_KEYS = {
         "ribbon_sheet_color",
         "ribbon_coil_color",
         "ribbon_uniform_color",
+        "ribbon_opacity",
         "ribbon_helix_width",
         "ribbon_coil_width",
         "ribbon_subdivide",
@@ -78,6 +81,7 @@ GROUP_KEYS = {
         "panel_mode",
         "auto_open_panel",
         "show_toolbar",
+        "toolbar_area",
     ),
 }
 
@@ -171,17 +175,52 @@ def _create_container(controller, mode):
         container.setMinimumWidth(300)
         mw.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, container)
     else:
-        container = QWidget(mw, Qt.WindowType.Tool)
-        container.setObjectName(WINDOW_OBJECT_NAME)
-        container.setWindowTitle(f"{TITLE} Settings")
+        container = SettingsWindow(mw)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(panel)
-        container.resize(400, 620)
     container.mode = mode
     controller.panel_container = container
     controller.panel = panel
     return container
+
+
+class SettingsWindow(QWidget):
+    """The settings as a tool window beside the 3D view rather than over its centre."""
+
+    def __init__(self, parent):
+        super().__init__(parent, Qt.WindowType.Tool)
+        self.setObjectName(WINDOW_OBJECT_NAME)
+        self.setWindowTitle(f"{TITLE} Settings")
+        self.resize(400, 620)
+        self._positioned = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Only on first show, so a window the user has moved stays where it is.
+        if not self._positioned:
+            self._positioned = True
+            try:
+                self.move(*window_position(self.parentWidget(), self))
+            except (RuntimeError, AttributeError) as exc:
+                logger.warning(
+                    "Large System Viewer: placing the settings window failed: %s", exc
+                )
+
+
+def window_position(main, window):
+    """Top-left corner near the main window's right edge, kept on its screen."""
+    frame = main.frameGeometry()
+    width = window.width()
+    height = window.height()
+    x = frame.right() - width - 24
+    y = frame.top() + 110
+    screen = main.screen()
+    if screen is not None:
+        area = screen.availableGeometry()
+        x = min(max(x, area.left()), area.right() - width)
+        y = min(max(y, area.top()), area.bottom() - height)
+    return x, y
 
 
 # ------------------------------------------------------------------ shared logic
@@ -347,13 +386,22 @@ def sync_toolbar(controller):
     if not _alive(bar):
         bar = None
         controller.toolbar = None
+    area = (
+        Qt.ToolBarArea.TopToolBarArea
+        if controller.values.get("toolbar_area") == "top"
+        else Qt.ToolBarArea.BottomToolBarArea
+    )
+    mw = controller.mw
     if bar is None:
         if not want:
             return
-        mw = controller.mw
         bar = LargeSystemToolBar(controller, mw)
-        mw.addToolBar(Qt.ToolBarArea.BottomToolBarArea, bar)
+        mw.addToolBar(area, bar)
+        bar.area = area
         controller.toolbar = bar
+    elif getattr(bar, "area", None) != area:
+        mw.addToolBar(area, bar)  # moves it
+        bar.area = area
     bar.sync()
     bar.setVisible(want)
 
@@ -440,6 +488,7 @@ class SettingsPanel(_Playback, QWidget):
         fform.addRow("Frames per second:", self._spin("fps", 1, 120))
         fform.addRow("Step (frames):", self._spin("stride", 1, 100000))
         fform.addRow(self._check("loop", "Loop"))
+        fform.addRow(self._check("bounce", "Play back and forth"))
         fbox.addLayout(fform)
         box.addWidget(frames)
         self._add_reset(box, "structure")
@@ -468,6 +517,11 @@ class SettingsPanel(_Playback, QWidget):
         form.addRow("Specular power:", self._dspin("specular_power", 1.0, 200.0, 1.0))
         form.addRow(self._check("show_hydrogens", "Show hydrogens"))
         form.addRow(self._check("show_water", "Show water"))
+        form.addRow("Atom opacity:", self._dspin("atom_opacity", 0.05, 1.0, 0.05))
+        form.addRow(
+            "Ligands (Ribbon + Ligands):",
+            self._choice("ligand_style", settings.LIGAND_STYLES),
+        )
         box.addLayout(form)
         self._add_reset(box, "appearance")
         return page
@@ -492,6 +546,7 @@ class SettingsPanel(_Playback, QWidget):
         )
         sform.addRow("Coil width:", self._dspin("ribbon_coil_width", 0.05, 10.0, 0.05))
         sform.addRow("Smoothness:", self._spin("ribbon_subdivide", 1, 100))
+        sform.addRow("Opacity:", self._dspin("ribbon_opacity", 0.05, 1.0, 0.05))
         box.addWidget(shape)
         self._add_reset(box, "ribbon")
         return page
@@ -546,6 +601,9 @@ class SettingsPanel(_Playback, QWidget):
             )
         )
         wform.addRow(self._check("show_toolbar", "Show the toolbar"))
+        wform.addRow(
+            "Toolbar at:", self._choice("toolbar_area", settings.TOOLBAR_AREAS)
+        )
         box.addWidget(windows)
         self._add_reset(box, "behaviour")
         return page
@@ -645,7 +703,7 @@ class SettingsPanel(_Playback, QWidget):
                 widget.setToolTip(
                     "Taken from MoleditPy's 3D settings" if inherit else ""
                 )
-        mode = values.get("ribbon_color_mode")
+        mode = values.get("ribbon_color_mode")  # rainbow and chain need no colours
         for key in ("ribbon_helix_color", "ribbon_sheet_color", "ribbon_coil_color"):
             self._bound[key][0].setEnabled(mode == "secondary")
         self._bound["ribbon_uniform_color"][0].setEnabled(mode == "uniform")

@@ -19,8 +19,20 @@ RIBBON_REPRESENTATIONS = ("ribbon", "ribbon_ligands")
 
 RIBBON_COLOR_MODES = (
     ("secondary", "Secondary structure"),
+    ("rainbow", "Rainbow (N to C terminus)"),
     ("chain", "Chain"),
     ("uniform", "Single colour"),
+)
+
+LIGAND_STYLES = (
+    ("ball_and_stick", "Ball and Stick"),
+    ("licorice", "Licorice"),
+    ("spacefill", "Spacefill"),
+)
+
+TOOLBAR_AREAS = (
+    ("bottom", "Bottom"),
+    ("top", "Top"),
 )
 
 PANEL_MODES = (
@@ -53,15 +65,18 @@ DEFAULTS = {
     "specular_power": 20.0,
     "show_hydrogens": True,
     "show_water": True,
+    "atom_opacity": 1.0,
+    "ligand_style": "ball_and_stick",  # atoms drawn with Ribbon + Ligands
     # Ribbon
     "ribbon_helix_width": 1.3,
     "ribbon_coil_width": 0.3,
     "ribbon_subdivide": 20,
-    "ribbon_color_mode": "secondary",  # secondary / chain / uniform
+    "ribbon_color_mode": "secondary",  # secondary / rainbow / chain / uniform
     "ribbon_helix_color": "#FF0080",
     "ribbon_sheet_color": "#FFC800",
     "ribbon_coil_color": "#DDDDDD",
     "ribbon_uniform_color": "#4E79A7",
+    "ribbon_opacity": 1.0,
     # Periodic cell
     "show_box": True,
     "box_color": "#FFC107",
@@ -70,10 +85,12 @@ DEFAULTS = {
     "fps": 10,
     "stride": 1,
     "loop": True,
+    "bounce": False,  # play forward, then backward
     # Windows
     "panel_mode": "window",  # settings in a separate window or the right-hand panel
     "auto_open_panel": True,  # open the settings when a large structure is opened
     "show_toolbar": True,  # representation and playback toolbar
+    "toolbar_area": "bottom",  # bottom / top of the main window
 }
 
 _LIMITS = {
@@ -89,6 +106,8 @@ _LIMITS = {
     "ribbon_coil_width": (0.05, 10.0),
     "ribbon_subdivide": (1, 100),
     "box_line_width": (0.5, 20.0),
+    "atom_opacity": (0.05, 1.0),
+    "ribbon_opacity": (0.05, 1.0),
     "fps": (1, 120),
     "stride": (1, 100000),
 }
@@ -118,6 +137,10 @@ def coerce(key, value):
     if key == "ribbon_color_mode" and out not in dict(RIBBON_COLOR_MODES):
         return default
     if key == "panel_mode" and out not in dict(PANEL_MODES):
+        return default
+    if key == "ligand_style" and out not in dict(LIGAND_STYLES):
+        return default
+    if key == "toolbar_area" and out not in dict(TOOLBAR_AREAS):
         return default
     if key.endswith("_color") and not (out.startswith("#") and len(out) == 7):
         return default

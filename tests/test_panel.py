@@ -216,7 +216,11 @@ def test_auto_open_follows_the_setting(monkeypatch):
 
 
 def test_new_settings_are_validated():
-    assert settings.coerce("ribbon_color_mode", "rainbow") == "secondary"
+    assert settings.coerce("ribbon_color_mode", "rainbow") == "rainbow"
+    assert settings.coerce("ribbon_color_mode", "plaid") == "secondary"
+    assert settings.coerce("ligand_style", "wireframe") == "ball_and_stick"
+    assert settings.coerce("toolbar_area", "top") == "top"
+    assert settings.coerce("ribbon_opacity", 3.0) == 1.0
     assert settings.coerce("panel_mode", "dock") == "dock"
     assert settings.coerce("panel_mode", "floating") == "window"
     assert settings.coerce("ribbon_coil_color", "red") == "#DDDDDD"
@@ -244,3 +248,71 @@ def test_ribbon_rgb_modes():
     second = render.ribbon_rgb(vtk_rgb, colors, 1)
     assert (first == first[0]).all() and (second == second[0]).all()
     assert first[0].tolist() != second[0].tolist()
+
+
+def test_rainbow_runs_blue_to_red_along_the_chain():
+    assert render.rainbow([0.0, 0.5, 1.0]).tolist() == [
+        [0, 0, 255],
+        [0, 255, 0],
+        [255, 0, 0],
+    ]
+    guides = np.array([[0.0, 0, 0], [5.0, 0, 0], [10.0, 0, 0]])
+    points = np.array([[0.4, 1, 0], [5.2, -1, 0], [9.0, 0, 1]])
+    assert render.nearest_fraction(points, guides, chunk=2).tolist() == [0.0, 0.5, 1.0]
+    colors = render.ribbon_color_options(
+        dict(settings.DEFAULTS, ribbon_color_mode="rainbow")
+    )
+    vtk_rgb = np.zeros((3, 3), np.uint8)
+    out = render.ribbon_rgb(vtk_rgb, colors, 0, np.array([0.0, 0.5, 1.0]))
+    assert out.tolist() == [[0, 0, 255], [0, 255, 0], [255, 0, 0]]
+
+
+def test_settings_window_opens_beside_the_view(controller):
+    mw = controller.mw
+    area = mw.screen().availableGeometry()
+    mw.setGeometry(area.adjusted(10, 10, -10, -10))
+    mw.show()
+    window = panel.show_panel(controller)
+    x, _y = panel.window_position(mw, window)
+    # Right of the centre, where a centred window would not be.
+    assert x + window.width() // 2 > mw.frameGeometry().center().x()
+
+
+def test_toolbar_moves_to_the_top(controller):
+    controller.fast = True
+    panel.sync_toolbar(controller)
+    controller.values["toolbar_area"] = "top"
+    panel.sync_toolbar(controller)
+    assert (
+        controller.mw.toolBarArea(controller.toolbar) == Qt.ToolBarArea.TopToolBarArea
+    )
+
+
+def _player(values):
+    from large_system_viewer import controller as ctl
+
+    context = SimpleNamespace(
+        get_main_window=lambda: object(), show_status_message=lambda *a: None
+    )
+    return ctl.Controller(context, values=dict(settings.DEFAULTS, **values))
+
+
+def test_bounce_plays_back_and_forth():
+    c = _player({"bounce": True, "loop": True})
+    index, seen = 0, [0]
+    for _ in range(8):
+        index = c._next_index(index, 4)
+        seen.append(index)
+    assert seen == [0, 1, 2, 3, 2, 1, 0, 1, 2]
+    c = _player({"bounce": True, "loop": False})
+    index, seen = 0, [0]
+    while index is not None and len(seen) < 20:
+        index = c._next_index(index, 3)
+        seen.append(index)
+    assert seen == [0, 1, 2, 1, 0, None]
+
+
+def test_plain_loop_and_stop():
+    assert _player({"loop": True})._next_index(3, 4) == 0
+    assert _player({"loop": False})._next_index(3, 4) is None
+    assert _player({"stride": 2})._next_index(1, 10) == 3
