@@ -17,6 +17,23 @@ from .settings import RIBBON_REPRESENTATIONS, hex_to_rgb
 logger = logging.getLogger(__name__)
 
 ACTOR_PREFIX = "large_system_viewer_"
+
+# vtkProteinRibbonFilter ignores per-atom colours and paints its output itself:
+# helix (255, 0, 128), sheet (255, 200, 0), everything else is coil.
+_VTK_HELIX = (255, 0, 128)
+_VTK_SHEET = (255, 200, 0)
+CHAIN_PALETTE = (
+    "#4E79A7",
+    "#F28E2B",
+    "#E15759",
+    "#76B7B2",
+    "#59A14F",
+    "#EDC948",
+    "#B07AA1",
+    "#FF9DA7",
+    "#9C755F",
+    "#BAB0AC",
+)
 _N_ELEMENTS = 119
 
 _BOX_EDGES = (
@@ -56,9 +73,11 @@ def _vtk():
         vtkPolyData,
     )
     from vtkmodules.vtkDomainsChemistry import vtkMoleculeMapper, vtkProteinRibbonFilter
+    from vtkmodules.vtkFiltersCore import vtkAppendPolyData
     from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
 
     return {
+        "vtkAppendPolyData": vtkAppendPolyData,
         "numpy_to_vtk": numpy_to_vtk,
         "vtk_to_numpy": vtk_to_numpy,
         "vtkIdTypeArray": vtkIdTypeArray,
@@ -92,6 +111,43 @@ def vdw_radii_table():
     except Exception:  # pragma: no cover - RDKit is a host dependency
         logger.debug("RDKit periodic table unavailable", exc_info=True)
     return table
+
+
+def ribbon_color_options(options):
+    """Colour mode and uint8 colours for the ribbon from the settings."""
+
+    def rgb(key):
+        return np.array(
+            [round(255 * c) for c in hex_to_rgb(options.get(key))], dtype=np.uint8
+        )
+
+    return {
+        "mode": options.get("ribbon_color_mode", "secondary"),
+        "helix": rgb("ribbon_helix_color"),
+        "sheet": rgb("ribbon_sheet_color"),
+        "coil": rgb("ribbon_coil_color"),
+        "uniform": rgb("ribbon_uniform_color"),
+        "palette": [
+            np.array([round(255 * c) for c in hex_to_rgb(h)], dtype=np.uint8)
+            for h in CHAIN_PALETTE
+        ],
+    }
+
+
+def ribbon_rgb(vtk_rgb, colors, chain_number):
+    """Colours for ribbon points painted by vtkProteinRibbonFilter."""
+    out = np.empty_like(vtk_rgb)
+    mode = colors["mode"]
+    if mode == "uniform":
+        out[:] = colors["uniform"]
+    elif mode == "chain":
+        palette = colors["palette"]
+        out[:] = palette[chain_number % len(palette)]
+    else:
+        out[:] = colors["coil"]
+        out[(vtk_rgb == _VTK_HELIX).all(axis=1)] = colors["helix"]
+        out[(vtk_rgb == _VTK_SHEET).all(axis=1)] = colors["sheet"]
+    return out
 
 
 def color_table(cpk_colors):
@@ -158,9 +214,9 @@ class FastScene:
         self.actors = {}
         self._mol = None
         self._mol_index = None
-        self._ribbon_points = None
-        self._ribbon_index = None
-        self._ribbon_filter = None
+        self._ribbons = []  # (points polydata, atom index, filter, chain number)
+        self._ribbon_append = None
+        self._ribbon_colors = None
         self._box_points = None
         self.representation = None
         self.fallback_reason = ""
@@ -282,6 +338,41 @@ class FastScene:
             if system.hetatm is not None
             else np.arange(system.n_atoms)
         )
+        chains = [system.chains[i] if system.chains else "A" for i in index.tolist()]
+        # One ribbon per chain, so that each chain can have its own colour.
+        order = list(dict.fromkeys(chains))
+        chain_of = np.array([order.index(c) for c in chains], dtype=np.int64)
+        self._ribbon_colors = ribbon_color_options(options)
+        append = vtk["vtkAppendPolyData"]()
+        for number in range(len(order)):
+            sub = index[chain_of == number]
+            if len(sub) == 0:
+                continue
+            poly = self._ribbon_input(vtk, system, positions, sub, options)
+            ribbon = vtk["vtkProteinRibbonFilter"]()
+            ribbon.SetInputData(poly)
+            ribbon.SetDrawSmallMoleculesAsSpheres(False)
+            ribbon.SetHelixWidth(float(options.get("ribbon_helix_width", 1.3)))
+            ribbon.SetCoilWidth(float(options.get("ribbon_coil_width", 0.3)))
+            ribbon.SetSubdivideFactor(int(options.get("ribbon_subdivide", 20)))
+            ribbon.Update()
+            self._paint_ribbon(vtk, ribbon, number)
+            append.AddInputData(ribbon.GetOutput())
+            self._ribbons.append((poly, sub, ribbon, number))
+        append.Update()
+
+        mapper = vtk["vtkPolyDataMapper"]()
+        mapper.SetInputConnection(append.GetOutputPort())
+        actor = vtk["vtkActor"]()
+        actor.SetMapper(mapper)
+        look = options["look"]
+        actor.GetProperty().SetSpecular(look.get("specular", 0.2))
+        actor.GetProperty().SetSpecularPower(look.get("specular_power", 20.0))
+        self._ribbon_append = append
+        self._add("ribbon", actor)
+
+    def _ribbon_input(self, vtk, system, positions, index, options):
+        """Atom polydata with the arrays vtkProteinRibbonFilter reads."""
         names = [system.names[i].strip() for i in index.tolist()]
         chains = [system.chains[i] if system.chains else "A" for i in index.tolist()]
         resids = system.resids[index]
@@ -348,26 +439,16 @@ class FastScene:
             vtk["numpy_to_vtk"](np.ascontiguousarray(rad, dtype=np.float32), deep=True),
             "radius",
         )
+        return poly
 
-        ribbon = vtk["vtkProteinRibbonFilter"]()
-        ribbon.SetInputData(poly)
-        ribbon.SetDrawSmallMoleculesAsSpheres(False)
-        ribbon.SetHelixWidth(float(options.get("ribbon_helix_width", 1.3)))
-        ribbon.SetCoilWidth(float(options.get("ribbon_coil_width", 0.3)))
-        ribbon.SetSubdivideFactor(int(options.get("ribbon_subdivide", 20)))
-        ribbon.Update()
-
-        mapper = vtk["vtkPolyDataMapper"]()
-        mapper.SetInputConnection(ribbon.GetOutputPort())
-        actor = vtk["vtkActor"]()
-        actor.SetMapper(mapper)
-        look = options["look"]
-        actor.GetProperty().SetSpecular(look.get("specular", 0.2))
-        actor.GetProperty().SetSpecularPower(look.get("specular_power", 20.0))
-        self._ribbon_points = poly
-        self._ribbon_index = index
-        self._ribbon_filter = ribbon
-        self._add("ribbon", actor)
+    def _paint_ribbon(self, vtk, ribbon, chain_number):
+        """Recolour the filter output in place (it is rebuilt on every update)."""
+        scalars = ribbon.GetOutput().GetPointData().GetScalars()
+        if scalars is None or scalars.GetNumberOfComponents() < 3:
+            return
+        rgb = vtk["vtk_to_numpy"](scalars)
+        rgb[:, :3] = ribbon_rgb(rgb[:, :3], self._ribbon_colors, chain_number)
+        scalars.Modified()
 
     def _build_box(self, vtk, box, options):
         poly = vtk["vtkPolyData"]()
@@ -403,12 +484,16 @@ class FastScene:
             target[:] = positions[self._mol_index]
             self._mol.GetAtomicPositionArray().Modified()
             self._mol.Modified()
-        if self._ribbon_points is not None:
-            target = vtk["vtk_to_numpy"](self._ribbon_points.GetPoints().GetData())
-            target[:] = positions[self._ribbon_index]
-            self._ribbon_points.GetPoints().Modified()
-            self._ribbon_points.Modified()
-            self._ribbon_filter.Update()
+        for poly, index, ribbon, number in self._ribbons:
+            target = vtk["vtk_to_numpy"](poly.GetPoints().GetData())
+            target[:] = positions[index]
+            poly.GetPoints().Modified()
+            poly.Modified()
+            ribbon.Update()
+            self._paint_ribbon(vtk, ribbon, number)
+        if self._ribbon_append is not None:
+            self._ribbon_append.Modified()
+            self._ribbon_append.Update()
         if self._box_points is not None and box is not None:
             target = vtk["vtk_to_numpy"](self._box_points.GetPoints().GetData())
             target[:] = cell_corners(box)
@@ -438,7 +523,7 @@ class FastScene:
         self.actors = {}
         self._mol = None
         self._mol_index = None
-        self._ribbon_points = None
-        self._ribbon_index = None
-        self._ribbon_filter = None
+        self._ribbons = []
+        self._ribbon_append = None
+        self._ribbon_colors = None
         self._box_points = None

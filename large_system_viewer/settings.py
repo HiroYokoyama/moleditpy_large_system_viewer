@@ -17,6 +17,17 @@ REPRESENTATIONS = (
 )
 RIBBON_REPRESENTATIONS = ("ribbon", "ribbon_ligands")
 
+RIBBON_COLOR_MODES = (
+    ("secondary", "Secondary structure"),
+    ("chain", "Chain"),
+    ("uniform", "Single colour"),
+)
+
+PANEL_MODES = (
+    ("window", "Separate window"),
+    ("dock", "Right-hand panel"),
+)
+
 LARGE_ACTIONS = (
     ("ask", "Ask"),
     ("switch", "Always switch to the Fast style"),
@@ -46,6 +57,11 @@ DEFAULTS = {
     "ribbon_helix_width": 1.3,
     "ribbon_coil_width": 0.3,
     "ribbon_subdivide": 20,
+    "ribbon_color_mode": "secondary",  # secondary / chain / uniform
+    "ribbon_helix_color": "#FF0080",
+    "ribbon_sheet_color": "#FFC800",
+    "ribbon_coil_color": "#DDDDDD",
+    "ribbon_uniform_color": "#4E79A7",
     # Periodic cell
     "show_box": True,
     "box_color": "#FFC107",
@@ -54,6 +70,10 @@ DEFAULTS = {
     "fps": 10,
     "stride": 1,
     "loop": True,
+    # Windows
+    "panel_mode": "window",  # settings in a separate window or the right-hand panel
+    "auto_open_panel": True,  # open the settings when a large structure is opened
+    "show_toolbar": True,  # representation and playback toolbar
 }
 
 _LIMITS = {
@@ -94,6 +114,10 @@ def coerce(key, value):
     if key == "representation" and out not in dict(REPRESENTATIONS):
         return default
     if key == "large_action" and out not in dict(LARGE_ACTIONS):
+        return default
+    if key == "ribbon_color_mode" and out not in dict(RIBBON_COLOR_MODES):
+        return default
+    if key == "panel_mode" and out not in dict(PANEL_MODES):
         return default
     if key.endswith("_color") and not (out.startswith("#") and len(out) == 7):
         return default
