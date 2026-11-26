@@ -316,3 +316,17 @@ def test_plain_loop_and_stop():
     assert _player({"loop": True})._next_index(3, 4) == 0
     assert _player({"loop": False})._next_index(3, 4) is None
     assert _player({"stride": 2})._next_index(1, 10) == 3
+
+
+def test_toolbar_settings_button_opens_even_without_auto_open(controller):
+    from PySide6.QtWidgets import QToolButton
+
+    opened = []
+    controller.show_panel = lambda auto=False: opened.append(auto)
+    controller.fast = True
+    controller.values["auto_open_panel"] = False
+    panel.sync_toolbar(controller)
+    buttons = {b.text(): b for b in controller.toolbar.findChildren(QToolButton)}
+    assert "Previous Style" not in buttons and "Fast Style" not in buttons
+    buttons["Settings..."].click()
+    assert opened == [False]

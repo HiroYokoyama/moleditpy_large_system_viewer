@@ -293,14 +293,6 @@ class _Playback:
             return
         self.controller.show_frame(self.slider.value(), commit=True)
 
-    def _toggle_fast(self):
-        c = self.controller
-        if c.fast_active():
-            c.restore_style()
-        else:
-            c.switch_to_fast(auto=False)
-        c._sync_panel()
-
     def _sync_playback(self, n_frames):
         c = self.controller
         s = c.session
@@ -343,13 +335,11 @@ class LargeSystemToolBar(_Playback, QToolBar):
         self.frame_label.setMinimumWidth(90)
         self.addWidget(self.frame_label)
         self.addSeparator()
-        self.fast_button = QToolButton()
-        self.fast_button.clicked.connect(self._toggle_fast)
-        self.addWidget(self.fast_button)
         settings_button = QToolButton()
         settings_button.setText("Settings...")
         settings_button.setToolTip("Large System Viewer settings")
-        settings_button.clicked.connect(controller.show_panel)
+        # A lambda, so clicked(bool) does not arrive as show_panel's auto argument.
+        settings_button.clicked.connect(lambda: controller.show_panel())
         self.addWidget(settings_button)
         install_wheel_guard(self)
 
@@ -362,16 +352,6 @@ class LargeSystemToolBar(_Playback, QToolBar):
             self._sync_playback(n_frames)
             self.frame_label.setText(
                 "" if s is None else f" Frame {s.index + 1:,} / {n_frames:,}"
-            )
-            fast = c.fast_active()
-            self.fast_button.setText("Previous Style" if fast else "Fast Style")
-            self.fast_button.setToolTip(
-                "Return to the style used before the Fast style"
-                if fast
-                else "Draw this structure with the Large System (Fast) style"
-            )
-            self.fast_button.setEnabled(
-                not (fast and s is not None and s.mode == MODE_VIEW_ONLY)
             )
         finally:
             self._syncing = False
@@ -457,9 +437,6 @@ class SettingsPanel(_Playback, QWidget):
         self.note.setWordWrap(True)
         self.note.setStyleSheet("color: #a05a00;")
         info.addWidget(self.note)
-        self.fast_button = QPushButton("Use Fast Style")
-        self.fast_button.clicked.connect(self._toggle_fast)
-        info.addWidget(self.fast_button)
         form = QFormLayout()
         form.addRow("Representation:", self._make_representation())
         info.addLayout(form)
@@ -718,10 +695,6 @@ class SettingsPanel(_Playback, QWidget):
             self._update_enabled()
             s = c.session
             fast = c.fast_active()
-            self.fast_button.setText("Use Previous Style" if fast else "Use Fast Style")
-            self.fast_button.setEnabled(
-                not (fast and s is not None and s.mode == MODE_VIEW_ONLY)
-            )
             if s is None:
                 self.info.setText("No structure")
                 n_frames = 0

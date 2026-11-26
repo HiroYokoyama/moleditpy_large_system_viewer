@@ -54,7 +54,7 @@ Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://gi
    the settings window opens beside the 3D view (both can be turned off).
 3. Choose a representation and play the frames from the toolbar. Open the settings from the
    toolbar's **Settings...** button or **Settings > Large System Viewer Settings...**.
-4. **Previous Style** on the toolbar returns to the style you had before.
+4. To leave the Fast style, choose another style from MoleditPy's **3D Style** menu.
 
 ![NMR models played as frames](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/nmr_models.png)
 

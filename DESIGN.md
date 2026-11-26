@@ -153,8 +153,8 @@ otherwise the host loads it.
 ## 6. UI (toolbar and settings)
 
 The toolbar (bottom or top of the main window) holds the representation, first / previous /
-play-pause / next / last, a frame slider and number, the Fast / Previous Style button and a
-Settings button. It is shown while a session exists or the Fast style is active.
+play-pause / next / last, a frame slider and number, and a Settings button. Styles are
+changed through MoleditPy's own 3D Style menu. It is shown while a session exists or the Fast style is active.
 
 The settings are tabs (Structure, Appearance, Ribbon, Box, Behaviour) in a tool window that
 opens near the main window's right edge on first show, or in a right-hand dock
@@ -165,7 +165,7 @@ value.
 
 - Structure: file name, atoms, frames, mode (hybrid / view-only / conformers), whether a box
   was found, notes (ribbon fallback, detached session).
-- Representation, and a button that switches to the Fast style or back to the previous one.
+- Representation. Styles are switched from MoleditPy's 3D Style menu.
 - Frames: first / previous / play-pause / next / last, slider, frame number, fps, step, loop.
 - Appearance: inherit-from-MoleditPy switch and the plugin's own radii, bond colour and
   specular values (disabled while inheriting), hydrogens and water on/off.
