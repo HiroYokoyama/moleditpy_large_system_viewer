@@ -50,7 +50,8 @@ large_system_viewer/
   session.py    the displayed system and its frames, committing a frame to the host
   host.py       every touch point with host internals (loading, styles, molecule hook, export guard)
   controller.py routing, style switching, playback, persistence handlers
-  panel.py      right-hand dock panel (representation, playback, settings) and the switch question
+  panel.py      settings tabs (window or dock), toolbar and the switch question
+  wheel_guard.py  value fields take the wheel only when focused (as in ORCA Input Generator Pro)
   settings.py   plugin settings (settings.json)
 ```
 
@@ -149,7 +150,18 @@ otherwise the host loads it.
   its nearest partner) plus PDB CONECT records. Bonds are not recomputed for later frames.
   Periodic boundaries are ignored.
 
-## 6. UI (right-hand dock panel)
+## 6. UI (toolbar and settings)
+
+The toolbar (bottom or top of the main window) holds the representation, first / previous /
+play-pause / next / last, a frame slider and number, the Fast / Previous Style button and a
+Settings button. It is shown while a session exists or the Fast style is active.
+
+The settings are tabs (Structure, Appearance, Ribbon, Box, Behaviour) in a tool window that
+opens near the main window's right edge on first show, or in a right-hand dock
+(`panel_mode`). They open by themselves when a large structure arrives unless
+`auto_open_panel` is off, and from Settings > Large System Viewer Settings... Spin boxes,
+combo boxes and sliders ignore the wheel until focused, so scrolling a tab never changes a
+value.
 
 - Structure: file name, atoms, frames, mode (hybrid / view-only / conformers), whether a box
   was found, notes (ribbon fallback, detached session).
@@ -157,11 +169,14 @@ otherwise the host loads it.
 - Frames: first / previous / play-pause / next / last, slider, frame number, fps, step, loop.
 - Appearance: inherit-from-MoleditPy switch and the plugin's own radii, bond colour and
   specular values (disabled while inheriting), hydrogens and water on/off.
-- Ribbon widths and smoothness; periodic box on/off, colour and line width.
+- Ribbon colour mode, colours, widths, smoothness and opacity; periodic box on/off, colour
+  and line width. vtkProteinRibbonFilter ignores per-atom colours and paints helix
+  (255, 0, 128), sheet (255, 200, 0) and coil itself, so the plugin builds one ribbon per
+  chain and recolours the filter output after every update. Rainbow maps each output point
+  to its nearest CA once per build (the point layout does not change between frames).
 - Switching: large-structure action (ask / switch / keep), threshold, restore previous
   style, view-only atom limit. A reset button restores the defaults.
 
-The panel opens when a session starts and can be opened from the View menu.
 
 ## 7. Persistence
 

@@ -117,7 +117,7 @@ class Controller:
             self.refresh()
         if key == "panel_mode":
             self._later(self._move_panel)
-        elif key == "show_toolbar":
+        elif key in ("show_toolbar", "toolbar_area"):
             self._sync_panel()
 
     def reset_keys(self, keys):
@@ -294,7 +294,10 @@ class Controller:
             return
         self._playing = True
         host.set_interaction_enabled(self.mw, False)
+        if s.index == 0:
+            self._direction = 1
         if s.index >= s.n_frames - 1 and not self.values["loop"]:
+            self._direction = 1
             self.show_frame(0, commit=False)
         self._schedule(0)
         self._sync_panel()
@@ -336,7 +339,9 @@ class Controller:
         started = time.perf_counter()
         nxt = self._next_index(s.index, s.n_frames)
         if nxt is None:
-            self.show_frame(s.n_frames - 1, commit=False)
+            # The end: the last frame, or the first after playing there and back.
+            last = 0 if self.values.get("bounce") else s.n_frames - 1
+            self.show_frame(last, commit=False)
             self.pause()
             return
         self.show_frame(nxt, commit=False)
