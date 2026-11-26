@@ -97,14 +97,23 @@ class Controller:
         if key in _DISPLAY_KEYS:
             self.refresh()
 
-    def reset_settings(self):
-        playback = {k: self.values[k] for k in ("fps", "stride", "loop")}
-        self.values.clear()
-        self.values.update(settings.DEFAULTS)
-        self.values.update(playback)
-        settings.save(self.values)
-        self.refresh()
+    def reset_keys(self, keys):
+        """Restore the given settings to their defaults and redraw once."""
+        changed = [
+            k
+            for k in keys
+            if k in settings.DEFAULTS and self.values.get(k) != settings.DEFAULTS[k]
+        ]
+        for key in changed:
+            self.values[key] = settings.DEFAULTS[key]
+        if changed:
+            settings.save(self.values)
+            if any(k in _DISPLAY_KEYS for k in changed):
+                self.refresh()
         self._sync_panel()
+
+    def reset_settings(self):
+        self.reset_keys(tuple(settings.DEFAULTS))
 
     def _options(self, representation):
         mw = self.mw

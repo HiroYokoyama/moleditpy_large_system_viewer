@@ -45,6 +45,68 @@ _INHERITED = (
 )
 
 
+class _WheelNeedsFocus:
+    """Ignore the mouse wheel until the widget has focus.
+
+    Scrolling the panel would otherwise change whichever spin box, combo box or slider
+    passes under the pointer. An ignored wheel event goes on to the scroll area.
+    """
+
+    def _init_focus(self):
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+
+class SpinBox(_WheelNeedsFocus, QSpinBox):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._init_focus()
+
+
+class DoubleSpinBox(_WheelNeedsFocus, QDoubleSpinBox):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._init_focus()
+
+
+class ComboBox(_WheelNeedsFocus, QComboBox):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._init_focus()
+
+
+class Slider(_WheelNeedsFocus, QSlider):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._init_focus()
+
+
+# Keys restored by each group's Reset button.
+GROUP_KEYS = {
+    "structure": ("representation",),
+    "frames": ("fps", "stride", "loop"),
+    "appearance": (
+        "inherit_host_appearance",
+        *_INHERITED,
+        "show_hydrogens",
+        "show_water",
+    ),
+    "ribbon": ("ribbon_helix_width", "ribbon_coil_width", "ribbon_subdivide"),
+    "box": ("show_box", "box_color", "box_line_width"),
+    "switching": (
+        "large_action",
+        "switch_threshold",
+        "restore_style",
+        "host_link_limit",
+    ),
+}
+
+
 def ask_switch(parent, n_atoms, threshold):
     """(switch, remember) for a structure above the threshold. Yes is the default."""
     box = QMessageBox(parent)
@@ -103,7 +165,8 @@ class LargeSystemPanel(QDockWidget):
         layout.addWidget(self._ribbon_group())
         layout.addWidget(self._box_group())
         layout.addWidget(self._switch_group())
-        reset = QPushButton("Reset Settings")
+        reset = QPushButton("Reset All Settings")
+        reset.setToolTip("Restore every Large System Viewer setting to its default")
         reset.clicked.connect(self._reset)
         layout.addWidget(reset)
         layout.addStretch(1)
@@ -133,7 +196,7 @@ class LargeSystemPanel(QDockWidget):
         row.addWidget(self.fast_button)
         form.addLayout(row)
         rep_row = QFormLayout()
-        self.representation = QComboBox()
+        self.representation = ComboBox()
         for key, label in settings.REPRESENTATIONS:
             self.representation.addItem(label, key)
         self.representation.currentIndexChanged.connect(
@@ -141,6 +204,7 @@ class LargeSystemPanel(QDockWidget):
         )
         rep_row.addRow("Representation:", self.representation)
         form.addLayout(rep_row)
+        form.addWidget(self._reset_button("structure"), 0, Qt.AlignmentFlag.AlignRight)
         self._bound["representation"] = (
             self.representation,
             lambda v: self.representation.setCurrentIndex(
@@ -197,7 +261,7 @@ class LargeSystemPanel(QDockWidget):
         row.addStretch(1)
         box.addLayout(row)
 
-        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider = Slider(Qt.Orientation.Horizontal)
         self.slider.setMinimum(0)
         self.slider.valueChanged.connect(self._slider_moved)
         self.slider.sliderReleased.connect(self._slider_released)
@@ -205,7 +269,7 @@ class LargeSystemPanel(QDockWidget):
 
         frame_row = QHBoxLayout()
         frame_row.addWidget(QLabel("Frame:"))
-        self.frame_spin = QSpinBox()
+        self.frame_spin = SpinBox()
         self.frame_spin.setMinimum(1)
         self.frame_spin.setKeyboardTracking(False)
         self.frame_spin.valueChanged.connect(self._frame_typed)
@@ -220,6 +284,7 @@ class LargeSystemPanel(QDockWidget):
         form.addRow("Step (frames):", self._spin("stride", 1, 100000))
         form.addRow(self._check("loop", "Loop"))
         box.addLayout(form)
+        box.addWidget(self._reset_button("frames"), 0, Qt.AlignmentFlag.AlignRight)
         return group
 
     def _display_group(self):
@@ -244,6 +309,7 @@ class LargeSystemPanel(QDockWidget):
         form.addRow("Specular power:", self._dspin("specular_power", 1.0, 200.0, 1.0))
         form.addRow(self._check("show_hydrogens", "Show hydrogens"))
         form.addRow(self._check("show_water", "Show water"))
+        self._add_reset_row(form, "appearance")
         return group
 
     def _ribbon_group(self):
@@ -254,6 +320,7 @@ class LargeSystemPanel(QDockWidget):
         )
         form.addRow("Coil width:", self._dspin("ribbon_coil_width", 0.05, 10.0, 0.05))
         form.addRow("Smoothness:", self._spin("ribbon_subdivide", 1, 100))
+        self._add_reset_row(form, "ribbon")
         return group
 
     def _box_group(self):
@@ -262,12 +329,13 @@ class LargeSystemPanel(QDockWidget):
         form.addRow(self._check("show_box", "Show box"))
         form.addRow("Colour:", self._color("box_color"))
         form.addRow("Line width:", self._dspin("box_line_width", 0.5, 20.0, 0.5))
+        self._add_reset_row(form, "box")
         return group
 
     def _switch_group(self):
         group = QGroupBox("Switching")
         form = QFormLayout(group)
-        combo = QComboBox()
+        combo = ComboBox()
         for key, label in settings.LARGE_ACTIONS:
             combo.addItem(label, key)
         combo.currentIndexChanged.connect(
@@ -295,12 +363,13 @@ class LargeSystemPanel(QDockWidget):
             "export tools are not available for them."
         )
         form.addRow("View-only above:", limit)
+        self._add_reset_row(form, "switching")
         return group
 
     # ---------------------------------------------------------- widgets
 
     def _spin(self, key, lo, hi):
-        w = QSpinBox()
+        w = SpinBox()
         w.setRange(lo, hi)
         w.setKeyboardTracking(False)
         w.valueChanged.connect(lambda v: self._set(key, v))
@@ -308,7 +377,7 @@ class LargeSystemPanel(QDockWidget):
         return w
 
     def _dspin(self, key, lo, hi, step):
-        w = QDoubleSpinBox()
+        w = DoubleSpinBox()
         w.setRange(lo, hi)
         w.setSingleStep(step)
         w.setDecimals(2)
@@ -354,6 +423,21 @@ class LargeSystemPanel(QDockWidget):
             logger.exception("Large System Viewer: setting %s failed", key)
         if key == "inherit_host_appearance":
             self._update_enabled()
+
+    def _reset_button(self, group):
+        button = QPushButton("Reset")
+        button.setToolTip("Restore the defaults of this group")
+        button.clicked.connect(lambda: self._reset_group(group))
+        return button
+
+    def _add_reset_row(self, form, group):
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self._reset_button(group))
+        form.addRow(row)
+
+    def _reset_group(self, group):
+        self.controller.reset_keys(GROUP_KEYS[group])
 
     def _reset(self):
         self.controller.reset_settings()

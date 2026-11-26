@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "Large System Viewer"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.1.1"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Fast display of large systems: proteins (ribbons), solvated MD boxes and "
