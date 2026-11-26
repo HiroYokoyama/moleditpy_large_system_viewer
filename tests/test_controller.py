@@ -40,7 +40,7 @@ def env(monkeypatch, tmp_path):
         get_main_window=lambda: object(), show_status_message=lambda *a: None
     )
     c = ctl.Controller(context, values=dict(settings.DEFAULTS, switch_threshold=10))
-    monkeypatch.setattr(c, "show_panel", lambda: None)
+    monkeypatch.setattr(c, "show_panel", lambda auto=False: None)
 
     def fake_session(path, use_fast, declined):
         calls["session"].append((path, use_fast, declined))
@@ -72,6 +72,9 @@ def _panel_stub(monkeypatch):
         stub = types.ModuleType("large_system_viewer.panel")
         stub.ask_switch = lambda *a: (False, False)
         stub.show_panel = lambda c: None
+        stub.panel_visible = lambda c: False
+        stub.sync_toolbar = lambda c: None
+        stub.close_panel = lambda c: None
         monkeypatch.setitem(sys.modules, "large_system_viewer.panel", stub)
 
 

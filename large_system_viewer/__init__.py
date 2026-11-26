@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "Large System Viewer"
-PLUGIN_VERSION = "0.1.1"
+PLUGIN_VERSION = "0.2.0"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Fast display of large systems: proteins (ribbons), solvated MD boxes and "
@@ -49,9 +49,9 @@ def initialize(context):
         )
     context.register_drop_handler(controller.drop_file, priority=OPENER_PRIORITY)
     context.add_menu_action(
-        "View/Large System Viewer Panel",
-        controller.show_panel,
-        text="Large System Viewer Panel",
+        "Settings/Large System Viewer Settings...",
+        lambda *_args: controller.show_panel(),
+        text="Large System Viewer Settings...",
     )
     context.register_save_handler(controller.state)
     context.register_load_handler(controller.restore)

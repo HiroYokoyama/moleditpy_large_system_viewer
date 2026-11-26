@@ -19,6 +19,11 @@ STYLE_NAME = "Large System (Fast)"
 _DISPLAY_KEYS = frozenset(
     (
         "representation",
+        "ribbon_color_mode",
+        "ribbon_helix_color",
+        "ribbon_sheet_color",
+        "ribbon_coil_color",
+        "ribbon_uniform_color",
         "inherit_host_appearance",
         "ball_atom_scale",
         "ball_bond_radius",
@@ -46,7 +51,9 @@ class Controller:
         self.values = values if values is not None else settings.load()
         self.session = None
         self.scene = None
-        self.panel = None
+        self.panel = None  # SettingsPanel
+        self.panel_container = None  # its window or dock
+        self.toolbar = None
         self.drawn_representation = None
         self.fallback_reason = ""
         self._previous_style = None
@@ -83,6 +90,14 @@ class Controller:
                 self.panel.sync()
             except RuntimeError:  # deleted widget
                 self.panel = None
+        try:
+            from .panel import sync_toolbar
+
+            sync_toolbar(self)
+        except RuntimeError:
+            self.toolbar = None
+        except Exception:
+            logger.debug("toolbar update failed", exc_info=True)
 
     # --------------------------------------------------------------- settings
 
@@ -96,6 +111,10 @@ class Controller:
         settings.save(self.values)
         if key in _DISPLAY_KEYS:
             self.refresh()
+        if key == "panel_mode":
+            self._later(self._move_panel)
+        elif key == "show_toolbar":
+            self._sync_panel()
 
     def reset_keys(self, keys):
         """Restore the given settings to their defaults and redraw once."""
@@ -160,7 +179,7 @@ class Controller:
             self._adopt_molecule(mol)
             s = self.session
             if self.panel is None:
-                self._later(self.show_panel)
+                self._later(lambda: self.show_panel(auto=True))
         elif (
             not s.detached
             and s.mode != MODE_VIEW_ONLY
@@ -378,7 +397,7 @@ class Controller:
             self._previous_style = style
             self._auto_switched = auto
             host.set_style(mw, STYLE_NAME)
-        self.show_panel()
+        self.show_panel(auto=True)
 
     def restore_style(self):
         previous = self._previous_style
@@ -571,7 +590,7 @@ class Controller:
             QApplication.restoreOverrideCursor()
         host.finish_file(mw, path)
         self._reset_view_later()
-        self.show_panel()
+        self.show_panel(auto=True)
         seconds = time.perf_counter() - started
         extra = (
             " (view-only: too large for MoleditPy tools)"
@@ -628,10 +647,25 @@ class Controller:
 
     # ------------------------------------------------------------- panel
 
-    def show_panel(self):
-        from .panel import show_panel
+    def show_panel(self, auto=False):
+        """Open the settings. Automatic openings follow the auto_open_panel setting."""
+        from .panel import panel_visible, show_panel
 
+        if auto and not self.values.get("auto_open_panel", True):
+            self._sync_panel()
+            return
+        if auto and panel_visible(self):
+            self._sync_panel()
+            return
         show_panel(self)
+        self._sync_panel()
+
+    def _move_panel(self):
+        """Reopen visible settings in the container chosen by panel_mode."""
+        from .panel import panel_visible
+
+        if panel_visible(self):
+            self.show_panel()
 
     # ------------------------------------------------------- persistence
 
@@ -688,7 +722,17 @@ class Controller:
         return True
 
     def shutdown(self):
+        from .panel import close_panel
+
         self.pause(commit=False)
         self._close_session()
+        close_panel(self)
+        if self.toolbar is not None:
+            try:
+                self.mw.removeToolBar(self.toolbar)
+                self.toolbar.deleteLater()
+            except RuntimeError:
+                pass
+            self.toolbar = None
         host.uninstall_molecule_hook(self.mw)
         host.uninstall_export_guard(self.mw)
