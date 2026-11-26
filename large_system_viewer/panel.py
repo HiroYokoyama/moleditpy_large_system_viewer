@@ -358,9 +358,10 @@ class LargeSystemToolBar(_Playback, QToolBar):
 
 
 def sync_toolbar(controller):
-    """Create, update, show or hide the toolbar."""
-    want = bool(controller.values.get("show_toolbar", True)) and (
-        controller.session is not None or controller.fast_active()
+    """Create, update, show or hide the toolbar (shown while a structure is open)."""
+    want = (
+        bool(controller.values.get("show_toolbar", True))
+        and controller.session is not None
     )
     bar = controller.toolbar
     if not _alive(bar):
@@ -372,6 +373,7 @@ def sync_toolbar(controller):
         else Qt.ToolBarArea.BottomToolBarArea
     )
     mw = controller.mw
+    remove_stale_toolbars(mw, keep=bar)
     if bar is None:
         if not want:
             return
@@ -384,6 +386,19 @@ def sync_toolbar(controller):
         bar.area = area
     bar.sync()
     bar.setVisible(want)
+
+
+def remove_stale_toolbars(mw, keep=None):
+    """Delete toolbars left by an earlier load of the plugin (Plugin Installer reloads)."""
+    for stale in mw.findChildren(QToolBar, TOOLBAR_OBJECT_NAME):
+        if stale is keep:
+            continue
+        try:
+            # Deleting a toolbar takes it out of the main window's layout.
+            stale.hide()
+            stale.deleteLater()
+        except RuntimeError:
+            pass
 
 
 # ------------------------------------------------------------------ settings

@@ -162,15 +162,22 @@ def test_reset_button_restores_its_tab(controller):
 
 
 def test_toolbar_follows_session_and_setting(controller):
-    panel.sync_toolbar(controller)
-    assert controller.toolbar is None  # nothing to show yet
     controller.fast = True
+    panel.sync_toolbar(controller)
+    assert controller.toolbar is None  # Fast style alone, nothing open (after New)
+    controller.session = SimpleNamespace(
+        n_frames=3, index=0, can_play=True, mode="hybrid"
+    )
     panel.sync_toolbar(controller)
     bar = controller.toolbar
     assert bar is not None and not bar.isHidden()
     assert controller.mw.toolBarArea(bar) == Qt.ToolBarArea.BottomToolBarArea
     assert bar.findChild(QSlider).focusPolicy() == Qt.FocusPolicy.StrongFocus
     controller.values["show_toolbar"] = False
+    panel.sync_toolbar(controller)
+    assert bar.isHidden()
+    controller.values["show_toolbar"] = True
+    controller.session = None  # File > New
     panel.sync_toolbar(controller)
     assert bar.isHidden()
 
@@ -278,8 +285,14 @@ def test_settings_window_opens_beside_the_view(controller):
     assert x + window.width() // 2 > mw.frameGeometry().center().x()
 
 
+def _open(controller):
+    controller.session = SimpleNamespace(
+        n_frames=3, index=0, can_play=True, mode="hybrid"
+    )
+
+
 def test_toolbar_moves_to_the_top(controller):
-    controller.fast = True
+    _open(controller)
     panel.sync_toolbar(controller)
     controller.values["toolbar_area"] = "top"
     panel.sync_toolbar(controller)
@@ -323,10 +336,52 @@ def test_toolbar_settings_button_opens_even_without_auto_open(controller):
 
     opened = []
     controller.show_panel = lambda auto=False: opened.append(auto)
-    controller.fast = True
+    _open(controller)
     controller.values["auto_open_panel"] = False
     panel.sync_toolbar(controller)
     buttons = {b.text(): b for b in controller.toolbar.findChildren(QToolButton)}
     assert "Previous Style" not in buttons and "Fast Style" not in buttons
     buttons["Settings..."].click()
     assert opened == [False]
+
+
+def test_reload_leaves_one_toolbar(controller):
+    from PySide6.QtWidgets import QToolBar
+
+    _open(controller)
+    panel.sync_toolbar(controller)
+    # A second load of the plugin (Plugin Installer) with its own controller.
+    second = FakeController(controller.mw)
+    _open(second)
+    panel.sync_toolbar(second)
+    QApplication.processEvents()
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    bars = controller.mw.findChildren(QToolBar, panel.TOOLBAR_OBJECT_NAME)
+    assert bars == [second.toolbar]
+
+
+def test_initialize_shuts_down_the_earlier_load(monkeypatch):
+    import large_system_viewer as plugin
+    from large_system_viewer import host
+
+    class Context:
+        def __init__(self, mw):
+            self.mw = mw
+
+        def get_main_window(self):
+            return self.mw
+
+        def __getattr__(self, name):  # register_* / add_menu_action
+            return lambda *a, **k: None
+
+    stopped = []
+    mw = SimpleNamespace()
+    earlier = SimpleNamespace(shutdown=lambda: stopped.append(True))
+    setattr(mw, plugin._ACTIVE_ATTR, earlier)
+    monkeypatch.setattr(host, "install_molecule_hook", lambda *a: None)
+    monkeypatch.setattr(host, "install_export_guard", lambda *a: None)
+    plugin.initialize(Context(mw))
+    assert stopped == [True]
+    assert getattr(mw, plugin._ACTIVE_ATTR) is plugin._controller

@@ -28,6 +28,9 @@ EXTENSIONS = (".pdb", ".ent", ".gro", ".xyz", ".sdf")
 OPENER_PRIORITY = 10
 
 _controller = None
+# The active controller is kept on the main window too: the host runs initialize() again
+# when plugins are installed or reloaded, and the earlier controller must be shut down.
+_ACTIVE_ATTR = "_large_system_viewer_controller"
 
 
 def initialize(context):
@@ -39,8 +42,20 @@ def initialize(context):
         logger.error("Large System Viewer is not available: %s", exc)
         return
 
+    mw = context.get_main_window()
+    previous = getattr(mw, _ACTIVE_ATTR, None) if mw is not None else None
+    if previous is not None:
+        try:
+            previous.shutdown()
+        except Exception:
+            logger.exception(
+                "Large System Viewer: shutting down the earlier load failed"
+            )
+
     controller = Controller(context)
     _controller = controller
+    if mw is not None:
+        setattr(mw, _ACTIVE_ATTR, controller)
 
     context.register_3d_style(STYLE_NAME, controller.draw)
     for ext in EXTENSIONS:
@@ -57,6 +72,5 @@ def initialize(context):
     context.register_load_handler(controller.restore)
     context.register_document_reset_handler(controller.document_reset)
 
-    mw = context.get_main_window()
     host.install_molecule_hook(mw, controller.on_new_molecule)
     host.install_export_guard(mw, controller.export_blocked)
