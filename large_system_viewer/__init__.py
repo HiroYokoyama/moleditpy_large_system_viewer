@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "Large System Viewer"
-PLUGIN_VERSION = "0.2.2"
+PLUGIN_VERSION = "0.2.3"
 PLUGIN_AUTHOR = "HiroYokoyama"
 PLUGIN_DESCRIPTION = (
     "Fast display of large systems: proteins (ribbons), solvated MD boxes and "
@@ -18,7 +18,7 @@ PLUGIN_DESCRIPTION = (
     "Large System (Fast) 3D style."
 )
 PLUGIN_CATEGORY = "Visualization"
-PLUGIN_TAGS = ["Visualization", "File"]
+PLUGIN_TAGS = ["Visualization", "File", "MD"]
 PLUGIN_DEPENDENCIES = []
 PLUGIN_OPTIONAL_DEPENDENCIES = []
 PLUGIN_SUPPORTED_MOLEDITPY_VERSION = ">=5.0.0, <6.0.0"
