@@ -121,6 +121,18 @@ def test_xyz_frame_titles(tmp_path):
     assert session.frame_title(1) == "step 1  E = -76.1"
 
 
+def test_xyz_titles_are_utf8_with_latin1_fallback(tmp_path):
+    path = tmp_path / "u.xyz"
+    body = b"O 0 0 0\nH 0.96 0 0\nH -0.24 0.93 0\n"
+    utf8 = "構造 1"  # Japanese, valid UTF-8
+    path.write_bytes(b"3\n" + utf8.encode() + b"\n" + body + b"3\ncaf\xe9\n" + body)
+    _, frames = formats.open_structure(str(path))
+    assert [frames.title(0), frames.title(1)] == [utf8, "café"]
+    single = tmp_path / "s.xyz"
+    single.write_bytes(b"3\n" + utf8.encode() + b"\n" + body)
+    assert formats.open_structure(str(single))[1].title(0) == utf8
+
+
 def test_single_xyz_title_and_untitled_formats(tmp_path):
     one = tmp_path / "one.xyz"
     one.write_text("3\nwater\nO 0 0 0\nH 0.96 0 0\nH -0.24 0.93 0\n", encoding="utf-8")

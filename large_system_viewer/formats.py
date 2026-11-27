@@ -94,6 +94,15 @@ class ArrayFrames(FrameSource):
         return self.titles[index] or ""
 
 
+def decode_title(raw):
+    """A title line's text: UTF-8 when it is valid UTF-8, otherwise Latin-1."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+    return text.strip()
+
+
 class _MappedFrames(FrameSource):
     def __init__(self, path, ranges, n_atoms, parse, default_box=None, title_line=None):
         self._file = open(path, "rb")  # noqa: SIM115 - kept open for the mmap
@@ -126,8 +135,7 @@ class _MappedFrames(FrameSource):
                 return ""
             pos = nl + 1
         nl = self._mm.find(b"\n", pos, end)
-        line = self._mm[pos : end if nl < 0 else nl]
-        return line.decode("latin-1").strip()
+        return decode_title(self._mm[pos : end if nl < 0 else nl])
 
     def close(self):
         try:
@@ -730,7 +738,7 @@ def open_xyz(path):
     )
     system.bond_orders = np.ones(len(system.bonds), dtype=np.uint8)
     if len(valid) == 1:
-        title = lines[1].strip() if len(lines) > 1 else ""
+        title = decode_title(lines[1].encode("latin-1")) if len(lines) > 1 else ""
         return system, ArrayFrames(coords[None], default_box=box, titles=[title])
     return system, _MappedFrames(path, valid, n, parse, box, title_line=1)
 
