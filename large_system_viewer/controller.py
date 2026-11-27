@@ -350,6 +350,45 @@ class Controller:
         elapsed = (time.perf_counter() - started) * 1000.0
         self._schedule(1000.0 / float(self.values["fps"]) - elapsed)
 
+    def export_gif(self, path, fps, step, transparent, use_hq, progress=None):
+        """Write every step-th frame as an animated GIF; False when progress cancels."""
+        from . import gif_export
+
+        s = self.session
+        if s is None or not s.can_play:
+            raise RuntimeError("there are no frames to export")
+        if not gif_export.HAS_PIL:
+            raise RuntimeError("Pillow is not installed")
+        plotter = host.plotter(self.mw)
+        if plotter is None:
+            raise RuntimeError("the 3D view is not available")
+        self.pause(commit=False)
+        original = s.index
+        indices = gif_export.export_indices(s.n_frames, step)
+        frames = []
+        try:
+            for done, index in enumerate(indices):
+                if progress is not None and not progress(done, len(indices)):
+                    return False
+                self.show_frame(index, commit=False)
+                plotter.render()
+                image = plotter.screenshot(
+                    transparent_background=transparent, return_img=True
+                )
+                if image is None:
+                    raise RuntimeError(f"capturing frame {index + 1} failed")
+                frames.append(
+                    gif_export.convert_frame(
+                        gif_export.Image.fromarray(image), transparent, use_hq
+                    )
+                )
+            if progress is not None:
+                progress(len(indices), len(indices))
+            gif_export.save_gif(frames, path, fps)
+            return True
+        finally:
+            self.show_frame(original, commit=True)
+
     def _next_index(self, index, n_frames):
         """Next frame while playing, or None to stop at the end."""
         stride = int(self.values["stride"])

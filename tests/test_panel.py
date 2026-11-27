@@ -173,6 +173,11 @@ def test_toolbar_follows_session_and_setting(controller):
     assert bar is not None and not bar.isHidden()
     assert controller.mw.toolBarArea(bar) == Qt.ToolBarArea.BottomToolBarArea
     assert bar.findChild(QSlider).focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert bar.gif_button.text() == "Save GIF..." and bar.gif_button.isEnabled()
+    controller.session.can_play = False
+    panel.sync_toolbar(controller)
+    assert not bar.gif_button.isEnabled()
+    controller.session.can_play = True
     controller.values["show_toolbar"] = False
     panel.sync_toolbar(controller)
     assert bar.isHidden()
@@ -385,3 +390,57 @@ def test_initialize_shuts_down_the_earlier_load(monkeypatch):
     plugin.initialize(Context(mw))
     assert stopped == [True]
     assert getattr(mw, plugin._ACTIVE_ATTR) is plugin._controller
+
+
+def test_save_gif_asks_then_exports(controller, monkeypatch, tmp_path):
+    controller.session = SimpleNamespace(
+        n_frames=4, index=1, can_play=True, mode="hybrid", path=str(tmp_path / "t.xyz")
+    )
+    exported, statuses = [], []
+    controller.export_gif = lambda *a: exported.append(a) or True
+    controller.status = lambda msg, timeout=0: statuses.append(msg)
+    monkeypatch.setattr(panel, "ask_gif_settings", lambda p, c: (15, 2, False, True))
+    asked = {}
+
+    def get_save(parent, title, default, flt):
+        asked["default"] = default
+        return str(tmp_path / "out"), ""
+
+    monkeypatch.setattr(panel.QFileDialog, "getSaveFileName", get_save)
+    panel.save_gif(controller)
+    assert asked["default"].endswith("t_anim.gif")
+    path, fps, step, transparent, hq, _report = exported[0]
+    assert path.endswith("out.gif") and (fps, step, transparent, hq) == (
+        15,
+        2,
+        False,
+        True,
+    )
+    assert statuses and "out.gif" in statuses[0]
+
+
+def test_save_gif_cancelled_settings_export_nothing(controller, monkeypatch):
+    controller.session = SimpleNamespace(
+        n_frames=4, index=1, can_play=True, mode="hybrid", path=None
+    )
+    controller.export_gif = lambda *a: pytest.fail("exported")
+    monkeypatch.setattr(panel, "ask_gif_settings", lambda p, c: None)
+    panel.save_gif(controller)
+
+
+def test_gif_settings_dialog_defaults(controller, monkeypatch):
+    controller.values["fps"] = 24
+    controller.values["stride"] = 5
+    controller.session = SimpleNamespace(
+        n_frames=12, index=0, can_play=True, mode="hybrid", path=None
+    )
+    seen = {}
+
+    def fake_exec(dialog):
+        labels = [w.text() for w in dialog.findChildren(panel.QLabel)]
+        seen["count"] = [t for t in labels if " of " in t]
+        return panel.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(panel.QDialog, "exec", fake_exec)
+    assert panel.ask_gif_settings(controller.mw, controller) == (24, 5, True, True)
+    assert seen["count"] == ["3 of 12"]

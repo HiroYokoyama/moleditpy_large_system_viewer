@@ -1,20 +1,26 @@
 """Settings (a separate window or the right-hand panel), the toolbar and the switch question."""
 
 import logging
+import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QColorDialog,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDockWidget,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -223,6 +229,106 @@ def window_position(main, window):
     return x, y
 
 
+# ------------------------------------------------------------------ GIF export
+
+
+def _gif_default_path(session):
+    if session.path:
+        return os.path.splitext(session.path)[0] + "_anim.gif"
+    return "trajectory.gif"
+
+
+def ask_gif_settings(parent, controller):
+    """The GIF settings dialog: (fps, step, transparent, high quality) or None."""
+    s = controller.session
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("GIF Settings")
+    form = QFormLayout(dialog)
+    spin_fps = QSpinBox()
+    spin_fps.setRange(1, 60)
+    spin_fps.setValue(max(1, min(60, int(controller.values.get("fps", 10)))))
+    form.addRow("FPS:", spin_fps)
+    spin_step = QSpinBox()
+    spin_step.setRange(1, max(1, s.n_frames))
+    spin_step.setValue(max(1, min(s.n_frames, int(controller.values.get("stride", 1)))))
+    form.addRow("Step (frames):", spin_step)
+    count = QLabel()
+    form.addRow("Frames written:", count)
+
+    def recount(_value=None):
+        n = len(range(0, s.n_frames, spin_step.value()))
+        count.setText(f"{n:,} of {s.n_frames:,}")
+
+    spin_step.valueChanged.connect(recount)
+    recount()
+    chk_trans = QCheckBox()
+    chk_trans.setChecked(True)
+    form.addRow("Transparent:", chk_trans)
+    chk_hq = QCheckBox()
+    chk_hq.setChecked(True)
+    form.addRow("High Quality (Adaptive):", chk_hq)
+    btns = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    btns.accepted.connect(dialog.accept)
+    btns.rejected.connect(dialog.reject)
+    form.addRow(btns)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return (
+        spin_fps.value(),
+        spin_step.value(),
+        chk_trans.isChecked(),
+        chk_hq.isChecked(),
+    )
+
+
+def save_gif(controller, parent=None):
+    """Ask for the GIF settings and a file, then export the frames."""
+    from . import gif_export
+
+    s = controller.session
+    if s is None or not s.can_play:
+        return
+    parent = parent or controller.mw
+    if not gif_export.HAS_PIL:
+        QMessageBox.warning(parent, TITLE, "Pillow is not installed.")
+        return
+    controller.pause(commit=False)
+    options = ask_gif_settings(parent, controller)
+    if options is None:
+        return
+    fps, step, transparent, use_hq = options
+    path, _ = QFileDialog.getSaveFileName(
+        parent, "Save GIF", _gif_default_path(s), "GIF Files (*.gif)"
+    )
+    if not path:
+        return
+    if not path.lower().endswith(".gif"):
+        path += ".gif"
+    progress = QProgressDialog("Capturing frames...", "Cancel", 0, 1, parent)
+    progress.setWindowTitle("Save GIF")
+    progress.setWindowModality(Qt.WindowModality.WindowModal)
+    progress.setMinimumDuration(300)
+
+    def report(done, total):
+        progress.setMaximum(max(1, total))
+        progress.setValue(done)
+        QApplication.processEvents()
+        return not progress.wasCanceled()
+
+    try:
+        saved = controller.export_gif(path, fps, step, transparent, use_hq, report)
+    except Exception as e:
+        logger.exception("Large System Viewer: saving the GIF to %s failed", path)
+        QMessageBox.critical(parent, TITLE, f"Failed to save GIF:\n{e}")
+        return
+    finally:
+        progress.close()
+    if saved:
+        controller.status(f"GIF saved to: {os.path.basename(path)}", 5000)
+
+
 # ------------------------------------------------------------------ shared logic
 
 
@@ -247,6 +353,15 @@ class _Playback:
             button.clicked.connect(slots[name])
             add(button)
             self.buttons[name] = button
+
+    def _make_gif_button(self):
+        button = QToolButton()
+        button.setText("Save GIF...")
+        button.setToolTip("Save the frames as an animated GIF")
+        button.setAutoRaise(True)
+        button.clicked.connect(lambda: save_gif(self.controller, self.window()))
+        self.gif_button = button
+        return button
 
     def _make_slider(self):
         slider = QSlider(Qt.Orientation.Horizontal)
@@ -299,6 +414,7 @@ class _Playback:
         can_play = s is not None and s.can_play
         for button in self.buttons.values():
             button.setEnabled(can_play)
+        self.gif_button.setEnabled(can_play)
         self.slider.setEnabled(can_play)
         self.slider.setMaximum(max(0, n_frames - 1))
         if not self.slider.isSliderDown():
@@ -334,6 +450,7 @@ class LargeSystemToolBar(_Playback, QToolBar):
         self.frame_label = QLabel("")
         self.frame_label.setMinimumWidth(90)
         self.addWidget(self.frame_label)
+        self.addWidget(self._make_gif_button())
         self.addSeparator()
         settings_button = QToolButton()
         settings_button.setText("Settings...")
@@ -463,6 +580,7 @@ class SettingsPanel(_Playback, QWidget):
         row = QHBoxLayout()
         self._make_buttons(row.addWidget)
         row.addStretch(1)
+        row.addWidget(self._make_gif_button())
         fbox.addLayout(row)
         fbox.addWidget(self._make_slider())
         frame_row = QHBoxLayout()
