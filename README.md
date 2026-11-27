@@ -31,6 +31,9 @@ Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://gi
   first / previous / play / next / last buttons, a slider, frame rate, step and loop.
   PDB, GRO and XYZ frames are read lazily from a memory-mapped file, so long trajectories
   are never loaded whole; SDF records are read into memory when the file opens.
+- **Save GIF**: the toolbar and the Frames group write the frames as an animated GIF, with
+  the frames per second, a frame step, a transparent background and High Quality (an
+  adaptive palette per frame), the same options as ORCA Result Analyzer's GIF export.
 - **Linked to MoleditPy**: the paused frame is written into the current molecule, so
   measurement, 3D image export and other plugins work on it. Files above the view-only
   limit (50,000 atoms by default) are shown by the plugin alone.
