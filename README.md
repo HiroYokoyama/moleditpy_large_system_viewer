@@ -45,6 +45,8 @@ Repo: [https://github.com/HiroYokoyama/moleditpy_large_system_viewer](https://gi
 
 ![The toolbar at the bottom of the main window](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/toolbar.png)
 
+![Acetate in water (3,302 atoms), 1 ns of the MD System Builder tutorial run, a frame every 50 ps, played in the Fast style and saved with Save GIF](https://raw.githubusercontent.com/HiroYokoyama/moleditpy_large_system_viewer/main/docs/images/water_trajectory.gif)
+
 ---
 
 ## Usage
