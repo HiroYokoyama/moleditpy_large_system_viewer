@@ -43,6 +43,9 @@ DOCK_OBJECT_NAME = "LargeSystemViewerDock"
 WINDOW_OBJECT_NAME = "LargeSystemViewerSettings"
 TOOLBAR_OBJECT_NAME = "LargeSystemViewerToolBar"
 TITLE = "Large System Viewer"
+TOOLBAR_TITLE_WIDTH = (
+    320  # px; longer frame titles are elided, full text in the tooltip
+)
 
 # Settings MoleditPy supplies while "Use MoleditPy appearance" is on.
 _INHERITED = (
@@ -450,6 +453,9 @@ class LargeSystemToolBar(_Playback, QToolBar):
         self.frame_label = QLabel("")
         self.frame_label.setMinimumWidth(90)
         self.addWidget(self.frame_label)
+        self.title_label = QLabel("")
+        self.title_label.setMaximumWidth(TOOLBAR_TITLE_WIDTH)
+        self.addWidget(self.title_label)
         self.addWidget(self._make_gif_button())
         self.addSeparator()
         settings_button = QToolButton()
@@ -470,6 +476,14 @@ class LargeSystemToolBar(_Playback, QToolBar):
             self.frame_label.setText(
                 "" if s is None else f" Frame {s.index + 1:,} / {n_frames:,}"
             )
+            title = "" if s is None else s.frame_title()
+            metrics = self.title_label.fontMetrics()
+            self.title_label.setText(
+                metrics.elidedText(
+                    title, Qt.TextElideMode.ElideRight, TOOLBAR_TITLE_WIDTH - 8
+                )
+            )
+            self.title_label.setToolTip(title)
         finally:
             self._syncing = False
 
@@ -594,6 +608,14 @@ class SettingsPanel(_Playback, QWidget):
         frame_row.addWidget(self.frame_total)
         frame_row.addStretch(1)
         fbox.addLayout(frame_row)
+        # Frame title (XYZ comment line / SDF molecule name)
+        self.frame_title = QLabel("")
+        self.frame_title.setWordWrap(True)
+        self.frame_title.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.frame_title.setVisible(False)
+        fbox.addWidget(self.frame_title)
         fform = QFormLayout()
         fform.addRow("Frames per second:", self._spin("fps", 1, 120))
         fform.addRow("Step (frames):", self._spin("stride", 1, 100000))
@@ -856,5 +878,8 @@ class SettingsPanel(_Playback, QWidget):
             self.frame_spin.setMaximum(max(1, n_frames))
             self.frame_spin.setValue((s.index if s is not None else 0) + 1)
             self.frame_total.setText(f"/ {n_frames:,}")
+            title = "" if s is None else s.frame_title()
+            self.frame_title.setText(title)
+            self.frame_title.setVisible(bool(title))
         finally:
             self._syncing = False

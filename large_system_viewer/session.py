@@ -61,6 +61,14 @@ class Session:
             self._cache.popitem(last=False)
         return value
 
+    def frame_title(self, index=None):
+        """The frame's own title from the file (XYZ comment, SDF name), or ""."""
+        try:
+            return self.frames.title(self.index if index is None else index)
+        except Exception:
+            logger.debug("reading the frame title failed", exc_info=True)
+            return ""
+
     def positions(self, index=None):
         return self.frame(self.index if index is None else index)[0]
 

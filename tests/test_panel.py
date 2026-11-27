@@ -165,12 +165,16 @@ def test_toolbar_follows_session_and_setting(controller):
     controller.fast = True
     panel.sync_toolbar(controller)
     assert controller.toolbar is None  # Fast style alone, nothing open (after New)
+    title = "step 1  E = -76.4 Eh " + "x" * 200
     controller.session = SimpleNamespace(
-        n_frames=3, index=0, can_play=True, mode="hybrid"
+        n_frames=3, index=0, can_play=True, mode="hybrid", frame_title=lambda: title
     )
     panel.sync_toolbar(controller)
     bar = controller.toolbar
     assert bar is not None and not bar.isHidden()
+    assert bar.title_label.toolTip() == title
+    shown = bar.title_label.text()
+    assert shown.startswith("step 1") and len(shown) < len(title)  # elided
     assert controller.mw.toolBarArea(bar) == Qt.ToolBarArea.BottomToolBarArea
     assert bar.findChild(QSlider).focusPolicy() == Qt.FocusPolicy.StrongFocus
     assert bar.gif_button.text() == "Save GIF..." and bar.gif_button.isEnabled()
@@ -292,7 +296,7 @@ def test_settings_window_opens_beside_the_view(controller):
 
 def _open(controller):
     controller.session = SimpleNamespace(
-        n_frames=3, index=0, can_play=True, mode="hybrid"
+        n_frames=3, index=0, can_play=True, mode="hybrid", frame_title=str
     )
 
 
@@ -394,7 +398,12 @@ def test_initialize_shuts_down_the_earlier_load(monkeypatch):
 
 def test_save_gif_asks_then_exports(controller, monkeypatch, tmp_path):
     controller.session = SimpleNamespace(
-        n_frames=4, index=1, can_play=True, mode="hybrid", path=str(tmp_path / "t.xyz")
+        n_frames=4,
+        index=1,
+        can_play=True,
+        mode="hybrid",
+        path=str(tmp_path / "t.xyz"),
+        frame_title=str,
     )
     exported, statuses = [], []
     controller.export_gif = lambda *a: exported.append(a) or True
@@ -421,7 +430,7 @@ def test_save_gif_asks_then_exports(controller, monkeypatch, tmp_path):
 
 def test_save_gif_cancelled_settings_export_nothing(controller, monkeypatch):
     controller.session = SimpleNamespace(
-        n_frames=4, index=1, can_play=True, mode="hybrid", path=None
+        n_frames=4, index=1, can_play=True, mode="hybrid", path=None, frame_title=str
     )
     controller.export_gif = lambda *a: pytest.fail("exported")
     monkeypatch.setattr(panel, "ask_gif_settings", lambda p, c: None)
@@ -432,7 +441,7 @@ def test_gif_settings_dialog_defaults(controller, monkeypatch):
     controller.values["fps"] = 24
     controller.values["stride"] = 5
     controller.session = SimpleNamespace(
-        n_frames=12, index=0, can_play=True, mode="hybrid", path=None
+        n_frames=12, index=0, can_play=True, mode="hybrid", path=None, frame_title=str
     )
     seen = {}
 

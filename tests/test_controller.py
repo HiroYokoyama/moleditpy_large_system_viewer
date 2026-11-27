@@ -247,3 +247,26 @@ def test_project_restore_waits_for_the_molecule(env, monkeypatch):
         False,
     )
     assert c.values["representation"] == "licorice"
+
+
+def test_show_frame_puts_the_title_in_the_status_bar(env, monkeypatch, tmp_path):
+    from large_system_viewer import formats
+    from large_system_viewer.session import MODE_VIEW_ONLY, Session
+
+    c, _calls, _state, _tmp = env
+    path = tmp_path / "t.xyz"
+    path.write_text(
+        "".join(
+            f"3\nstep {f}\nO 0 0 {f}\nH 0.96 0 {f}\nH -0.24 0.93 {f}\n"
+            for f in range(3)
+        ),
+        encoding="utf-8",
+    )
+    messages = []
+    monkeypatch.setattr(c, "status", lambda m, timeout=4000: messages.append(m))
+    monkeypatch.setattr(c, "fast_active", lambda: False)
+    monkeypatch.setattr(c, "_render", lambda *a, **k: None)
+    monkeypatch.setattr(c, "_sync_panel", lambda: None)
+    c.session = Session(*formats.open_structure(str(path)), MODE_VIEW_ONLY)
+    c.show_frame(2, commit=False)
+    assert messages == ["Frame 3/3: step 2"]

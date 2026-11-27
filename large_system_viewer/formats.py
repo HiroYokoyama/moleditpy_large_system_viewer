@@ -48,6 +48,8 @@ class FrameSource:
 
     read_frame(i) returns (float32 [N, 3] in Angstrom, box) where box is a 3x3 matrix
     whose rows are the cell vectors in Angstrom, or None when the file has no cell.
+    title(i) is the frame's own title (the XYZ comment line, the SDF molecule name),
+    or "" when the format has none.
     """
 
     n_frames = 0
@@ -60,6 +62,9 @@ class FrameSource:
     def read(self, index):
         return self.read_frame(index)[0]
 
+    def title(self, index):
+        return ""
+
     @property
     def has_box(self):
         return self.default_box is not None
@@ -69,8 +74,9 @@ class FrameSource:
 
 
 class ArrayFrames(FrameSource):
-    def __init__(self, frames, boxes=None, default_box=None):
+    def __init__(self, frames, boxes=None, default_box=None, titles=None):
         self.frames = np.ascontiguousarray(frames, dtype=np.float32)
+        self.titles = titles
         self.n_frames = int(self.frames.shape[0])
         self.n_atoms = int(self.frames.shape[1])
         self.boxes = boxes
@@ -82,9 +88,14 @@ class ArrayFrames(FrameSource):
         box = self.boxes[index] if self.boxes else None
         return self.frames[index], box if box is not None else self.default_box
 
+    def title(self, index):
+        if not self.titles or index >= len(self.titles):
+            return ""
+        return self.titles[index] or ""
+
 
 class _MappedFrames(FrameSource):
-    def __init__(self, path, ranges, n_atoms, parse, default_box=None):
+    def __init__(self, path, ranges, n_atoms, parse, default_box=None, title_line=None):
         self._file = open(path, "rb")  # noqa: SIM115 - kept open for the mmap
         self._mm = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
         self.ranges = ranges
@@ -92,6 +103,7 @@ class _MappedFrames(FrameSource):
         self.n_atoms = n_atoms
         self._parse = parse
         self.default_box = default_box
+        self._title_line = title_line
 
     def read_frame(self, index):
         start, end = self.ranges[index]
@@ -101,6 +113,21 @@ class _MappedFrames(FrameSource):
                 f"frame {index + 1} has {len(coords)} atoms, expected {self.n_atoms}"
             )
         return coords.astype(np.float32), box if box is not None else self.default_box
+
+    def title(self, index):
+        """Line `title_line` of the frame, read on its own without parsing coordinates."""
+        if self._title_line is None:
+            return ""
+        start, end = self.ranges[index]
+        pos = start
+        for _ in range(self._title_line):
+            nl = self._mm.find(b"\n", pos, end)
+            if nl < 0:
+                return ""
+            pos = nl + 1
+        nl = self._mm.find(b"\n", pos, end)
+        line = self._mm[pos : end if nl < 0 else nl]
+        return line.decode("latin-1").strip()
 
     def close(self):
         try:
@@ -703,8 +730,9 @@ def open_xyz(path):
     )
     system.bond_orders = np.ones(len(system.bonds), dtype=np.uint8)
     if len(valid) == 1:
-        return system, ArrayFrames(coords[None], default_box=box)
-    return system, _MappedFrames(path, valid, n, parse, box)
+        title = lines[1].strip() if len(lines) > 1 else ""
+        return system, ArrayFrames(coords[None], default_box=box, titles=[title])
+    return system, _MappedFrames(path, valid, n, parse, box, title_line=1)
 
 
 # ------------------------------------------------------------------------------ SDF
@@ -718,6 +746,10 @@ def _sdf_records(path):
         if mol is not None:
             mol.UpdatePropertyCache(strict=False)
             yield mol
+
+
+def _sdf_title(mol):
+    return mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
 
 
 def peek_sdf(path):
@@ -741,13 +773,15 @@ def open_sdf(path):
         raise FormatError("no readable SDF record")
     system, frames = from_rdkit(first)
     frames = [frames[0]]
+    titles = [_sdf_title(first)]
     for mol in records:
         nums = np.fromiter((a.GetAtomicNum() for a in mol.GetAtoms()), np.uint8)
         if len(nums) != system.n_atoms or not np.array_equal(nums, system.numbers):
             raise FormatError("the SDF records are different molecules, not frames")
         frames.append(mol.GetConformer().GetPositions().astype(np.float32))
+        titles.append(_sdf_title(mol))
     system.extra["rdkit_mol"] = first
-    return system, ArrayFrames(np.stack(frames))
+    return system, ArrayFrames(np.stack(frames), titles=titles)
 
 
 # --------------------------------------------------------------------------- dispatch

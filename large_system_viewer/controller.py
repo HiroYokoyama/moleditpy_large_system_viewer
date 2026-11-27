@@ -275,6 +275,9 @@ class Controller:
             commit = True
         if commit:
             self.commit()
+        title = s.frame_title(index)
+        if title:
+            self.status(f"Frame {index + 1}/{s.n_frames}: {title}")
         self._sync_panel()
 
     def commit(self):

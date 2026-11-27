@@ -103,6 +103,33 @@ def test_xyz_frames_with_lattice(tmp_path):
     assert np.allclose(np.diag(box), [10.0, 11.0, 12.0])
 
 
+def test_xyz_frame_titles(tmp_path):
+    path = tmp_path / "t.xyz"
+    with open(path, "w", encoding="utf-8", newline="\r\n") as fh:
+        for f in range(3):
+            fh.write(f"3\n  step {f}  E = -76.{f} \n")
+            fh.write(f"O 0 0 {f}\nH 0.96 0 {f}\nH -0.24 0.93 {f}\n")
+    _, frames = formats.open_structure(str(path))
+    assert [frames.title(i) for i in range(3)] == [
+        "step 0  E = -76.0",
+        "step 1  E = -76.1",
+        "step 2  E = -76.2",
+    ]
+    session = Session(*formats.open_structure(str(path)), MODE_HYBRID)
+    session.index = 2
+    assert session.frame_title() == "step 2  E = -76.2"
+    assert session.frame_title(1) == "step 1  E = -76.1"
+
+
+def test_single_xyz_title_and_untitled_formats(tmp_path):
+    one = tmp_path / "one.xyz"
+    one.write_text("3\nwater\nO 0 0 0\nH 0.96 0 0\nH -0.24 0.93 0\n", encoding="utf-8")
+    _, frames = formats.open_structure(str(one))
+    assert frames.title(0) == "water"
+    _, frames = formats.open_structure(_write_gro(tmp_path / "w.gro"))
+    assert frames.title(1) == ""
+
+
 def test_single_xyz_is_not_multi_frame(tmp_path):
     path = tmp_path / "one.xyz"
     path.write_text("3\nwater\nO 0 0 0\nH 0.96 0 0\nH -0.24 0.93 0\n", encoding="utf-8")
@@ -137,6 +164,22 @@ def test_sdf_conformers_as_frames(tmp_path):
     assert np.allclose(
         frames.read(2), mol.GetConformer(ids[2]).GetPositions(), atol=1e-3
     )
+
+
+def test_sdf_molecule_names_are_frame_titles(tmp_path):
+    Chem = pytest.importorskip("rdkit.Chem")
+    from rdkit.Chem import AllChem
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CO"))
+    ids = AllChem.EmbedMultipleConfs(mol, 2, randomSeed=1)
+    path = tmp_path / "n.sdf"
+    writer = Chem.SDWriter(str(path))
+    for cid, name in zip(ids, ["conf A", ""]):
+        mol.SetProp("_Name", name)
+        writer.write(mol, confId=cid)
+    writer.close()
+    _, frames = formats.open_structure(str(path))
+    assert [frames.title(0), frames.title(1)] == ["conf A", ""]
 
 
 def test_bond_perception_grid_matches_brute_force():
